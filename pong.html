@@ -1,18 +1,92 @@
 <html>
-    <head>
-        <style>
-            @import url(style.css);
-            p.highlight {
-                color: red;
-            }
-            svg {
-                background-color: rgb(41, 41, 36);
-            }
-        </style>
-        <script src="./dist/pong.js"></script>
-    </head>
-    <body>
-        <h1>Pong</h1>
-        <svg id="canvas" width="600" height="600"/>
-    </body>
+  <head>
+    <style>
+      @import url(style.css);
+      p.highlight {
+        color: red;
+      }
+      svg {
+        background-color: rgb(41, 41, 36);
+      }
+    </style>
+    <script src="./dist/pong.js"></script>
+  </head>
+  <body>
+    <h1>Pong 🏓</h1>
+    <svg
+      id="svgCanvas"
+      width="600"
+      height="600"
+      style="background-color: black"
+    >
+      <g id="player_paddle" transform="translate(565,100)">
+        <rect
+          class="player_paddle"
+          width="15"
+          height="80"
+          style="fill: white"
+        ></rect>
+        <!-- <path fill="none" stroke="white" stroke-width="1.5" d="M-1.5 0 l0 80" />
+        <path fill="none" stroke="black" stroke-width="1" d="M-3.5 0 l0 80" /> -->
+      </g>
+      <g id="ball" transform="translate(200,200)">
+        <rect class="ball" width="15" height="15" style="fill: white"></rect>
+      </g>
+
+      <g id="cpu_paddle" transform="translate(25,100)">
+        <rect
+          class="player_paddle"
+          width="15"
+          height="80"
+          style="fill: white"
+        ></rect>
+        <!--<path fill="none" stroke="white" stroke-width="1.5" d="M16.5 0 l0 80" />
+        <path fill="none" stroke="white" stroke-width="1" d="M18.5 0 l0 80" /> -->
+      </g>
+
+      <g id="player_ui" transform="translate(385,43)">
+        <circle cx="0" cy="0" r="5" stroke="white" stroke-width="1.5" />
+        <circle cx="0" cy="14" r="5" stroke="white" stroke-width="1.5" />
+        <circle cx="16" cy="0" r="5" stroke="white" stroke-width="1.5" />
+        <circle cx="16" cy="14" r="5" stroke="white" stroke-width="1.5" />
+        <circle cx="32" cy="0" r="5" stroke="white" stroke-width="1.5" />
+        <circle cx="32" cy="14" r="5" stroke="white" stroke-width="1.5" />
+        <circle cx="46" cy="7" r="5" stroke="white" stroke-width="1.5" />
+        <rect
+          class="player_paddle"
+          width="40"
+          height="40"
+          style="stroke: white; stroke-width: 4; opacity: 1"
+          x="-58"
+          y="-11"
+        />
+      </g>
+
+      <g id="ai_ui" transform="translate(178,43)">
+        <circle cx="-14" cy="7" r="5" stroke="white" stroke-width="1.5" />
+        <circle cx="0" cy="0" r="5" stroke="white" stroke-width="1.5" />
+        <circle cx="0" cy="14" r="5" stroke="white" stroke-width="1.5" />
+        <circle cx="16" cy="0" r="5" stroke="white" stroke-width="1.5" />
+        <circle cx="16" cy="14" r="5" stroke="white" stroke-width="1.5" />
+        <circle cx="32" cy="0" r="5" stroke="white" stroke-width="1.5" />
+        <circle cx="32" cy="14" r="5" stroke="white" stroke-width="1.5" />
+        <rect
+          class="player_paddle"
+          width="40"
+          height="40"
+          style="stroke: white; stroke-width: 4; opacity: 1"
+          x="50"
+          y="-11"
+        />
+      </g>
+
+      <path
+        fill="none"
+        stroke="white"
+        stroke-width="4"
+        stroke-dasharray="14,10"
+        d="M297 5 l0 600"
+      />
+    </svg>
+  </body>
 </html>
