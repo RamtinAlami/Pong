@@ -1,4 +1,5 @@
 import { interval, fromEvent, from, zip } from "rxjs";
+
 import {
   map,
   scan,
@@ -15,6 +16,7 @@ type Paddle_state = Readonly<{
   x: number;
   speed: number;
   size: number;
+  direction: number;
   // active_powerup: null;
   // held_powerup: null;
 }>;
@@ -25,6 +27,7 @@ type ball_state = Readonly<{
   speedX: number;
   speedY: number;
   size: number;
+  velocity: Vector;
 }>;
 
 type State = Readonly<{
@@ -33,18 +36,38 @@ type State = Readonly<{
   ball: ball_state;
 }>;
 
+class Vector {
+  public readonly dx: number;
+  public readonly dy: number;
+
+  constructor(
+    public readonly magnitude: number = 0,
+    public readonly angle: number = 0
+  ) {
+    this.dx = magnitude * Math.cos(angle);
+    this.dy = magnitude * Math.sin(angle);
+  }
+
+  scale = (scale: number) => new Vector(this.magnitude * scale, this.angle);
+  x_reflect = () => new Vector(-this.magnitude, -this.angle);
+  y_reflect = () => new Vector(this.magnitude, -this.angle);
+  // y_reflect = () => new Vector(this.magnitude, this.angle)
+}
+
 const initial_player_paddle_state: Paddle_state = {
   x: 565,
   y: 100,
-  speed: 8,
+  speed: 20,
   size: 1,
+  direction: 0,
 };
 
 const initial_cpu_paddle_state: Paddle_state = {
   x: 25,
   y: 100,
-  speed: 8,
+  speed: 20,
   size: 1,
+  direction: 0,
 };
 
 const initial_ball_State: ball_state = {
@@ -53,6 +76,7 @@ const initial_ball_State: ball_state = {
   speedX: -2,
   speedY: 3,
   size: 1,
+  velocity: new Vector(10, 1),
 };
 
 const initialState: State = {
@@ -61,34 +85,144 @@ const initialState: State = {
   ball: initial_ball_State,
 };
 
-const get_pad_range: (y: number) => (size: number) => { x: Number } = (
-  y: Number
-) => (size: Number) => {
-  x: 2;
+const get_pad_range: (s: State) => { min: Number; max: Number } = (
+  s: State
+) => {
+  return {
+    max:
+      s.player_paddle.y +
+      s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE,
+
+    min: s.player_paddle.y,
+  };
 };
 
-function move_paddle(s: State, direction: number): State {
-  // curry it
-  return {
-    ...s, // copies the members of the input state for all but:
-    player_paddle: {
-      ...s.player_paddle,
-      y:
-        s.player_paddle.y + direction < 2
-          ? 2
-          : s.player_paddle.y + direction > 598 - s.player_paddle.size * 80
-          ? 598 - s.player_paddle.size * 80
-          : s.player_paddle.y + direction * s.player_paddle.speed,
-    },
-  };
-}
+const has_scored: (s: State) => boolean = (s: State) => s.ball.x >= 570;
 
+const get_pad_rang_aie: (s: State) => { min: Number; max: Number } = (
+  s: State
+) => {
+  return {
+    max:
+      s.cpu_paddle.y + s.cpu_paddle.size * game_constants.STARTING_PADDLE_SIZE,
+
+    min: s.cpu_paddle.y,
+  };
+};
+
+// function move_paddle(s: State, direction: number): State {
+//   // curry it
+//   return {
+//     ...s, // copies the members of the input state for all but:
+//     player_paddle: {
+//       ...s.player_paddle,
+//       y:
+//         s.player_paddle.y + direction < 2
+//           ? 2
+//           : s.player_paddle.y + direction > 598 - s.player_paddle.size * 80
+//           ? 598 - s.player_paddle.size * 80
+//           : s.player_paddle.y + direction * s.player_paddle.speed,
+//     },
+//   };
+// }
+
+const game_constants = { MAX_X: 600, MAX_Y: 600, STARTING_PADDLE_SIZE: 80 };
+
+// const move_player_paddle: (direction: number) => (s: State) => State = (
+//   direction: number
+// ) => (s: State) => {
+//   return {
+//     ...s, // copies the members of the input state for all but:
+//     player_paddle: {
+//       ...s.player_paddle,
+//       y:
+//         s.player_paddle.y + direction < 0
+//           ? 0 // if the paddle goes above 0, then we set to 0 so the paddle does not go outside view
+//           : s.player_paddle.y + direction >
+//             game_constants.MAX_Y -
+//               s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE
+//           ? game_constants.MAX_Y -
+//             s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE    // If paddle goes bellow the MAX_Y, we set to MAX_Y + paddle size, so it doesn't go outside view
+//           : s.player_paddle.y + direction * s.player_paddle.speed,  // If paddle is middle of the view, then simply move the y value
+//     },
+//   };
+// };
+
+const get_new_player_y: (direction: number) => (s: State) => Number = (
+  direction: number
+) => (s: State) => {
+  return s.player_paddle.y + direction < 0
+    ? 0 // if the paddle goes above 0, then we set to 0 so the paddle does not go outside view
+    : s.player_paddle.y + direction >
+      game_constants.MAX_Y -
+        s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE
+    ? game_constants.MAX_Y -
+      s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE // If paddle goes bellow the MAX_Y, we set to MAX_Y + paddle size, so it doesn't go outside view
+    : s.player_paddle.y + direction * s.player_paddle.speed; // If paddle is middle of the view, then simply move the y value
+};
 class Tick {
   constructor(public readonly elapsed: number) {}
 }
-// class Rotate { constructor(public readonly direction:number) {} }
-// class Thrust { constructor(public readonly on:boolean) {} }
+class move_player_paddle {
+  constructor(public readonly direction: number) {}
+}
 
+type Event = "keydown" | "keyup";
+type Key = "ArrowUp" | "ArrowDown" | "Space";
+const observeKey = <T>(eventName: string, k: Key, result: () => T) =>
+  fromEvent<KeyboardEvent>(document, eventName).pipe(
+    filter(({ code }) => code === k),
+    filter(({ repeat }) => !repeat),
+    map(result)
+  );
+
+const startLeftRotate = observeKey(
+  "keydown",
+  "ArrowUp",
+  () => new move_player_paddle(-1)
+);
+const startRightRotate = observeKey(
+  "keydown",
+  "ArrowDown",
+  () => new move_player_paddle(1)
+);
+const stopLeftRotate = observeKey(
+  "keyup",
+  "ArrowUp",
+  () => new move_player_paddle(0)
+);
+const stopRightRotate = observeKey(
+  "keyup",
+  "ArrowDown",
+  () => new move_player_paddle(0)
+);
+
+const reduceState = (s: State, e: move_player_paddle | Tick) =>
+  e instanceof move_player_paddle
+    ? {
+        ...s,
+        player_paddle: {
+          ...s.player_paddle,
+          direction: e.direction,
+        },
+      }
+    : {
+        ...s,
+        player_paddle: {
+          ...s.player_paddle,
+          y: get_new_player_y(s.player_paddle.direction)(s),
+        },
+        cpu_paddle: {
+          ...s.cpu_paddle,
+          y: s.ball.y <= 550 ? s.ball.y - 20 : s.cpu_paddle.y,
+        },
+        ball: {
+          ...s.ball,
+          x: has_scored(s) ? 250 : s.ball.x + get_new_ball_velocity(s).dx,
+          y: has_scored(s) ? 250 : s.ball.y + get_new_ball_velocity(s).dy,
+          velocity: get_new_ball_velocity(s),
+        },
+      };
 /**
  * Updates the state of cpu player by moving it towards a given position
  * @param s current overall state
@@ -109,24 +243,47 @@ function cpu_go_towards(s: State, position: Number): State {
   };
 }
 
-function move_ball(s: State): State {
-  const new_ball_speedX: number =
-    s.ball.x < 0 || s.ball.x > 600 ? -s.ball.speedX : s.ball.speedX;
-  const new_ball_speedY: number =
-    s.ball.y < 0 || s.ball.y > 600 ? -s.ball.speedY : s.ball.speedY;
+// function move_ball(
+//   s: State
+// ): { new_ball_speedX: number; new_ball_speedY: number } {
+//   const new_ball_speedX: number =
+//     s.ball.x < 0 || s.ball.x > 600 ? -s.ball.speedX : s.ball.speedX;
+//   const new_ball_speedY: number =
+//     s.ball.y < 0 || s.ball.y > 600 ? -s.ball.speedY : s.ball.speedY;
 
-  return {
-    ...s, // copies the members of the input state for all but:
-    ball: {
-      ...s.ball,
-      speedX: new_ball_speedX,
-      speedY: new_ball_speedY,
-      x: s.ball.x + new_ball_speedX,
-      y: s.ball.y + new_ball_speedY,
-    },
-  };
+//   return { new_ball_speedX, new_ball_speedY };
+// }
+
+function collision_with_paddle(s: State): boolean {
+  const { min, max } = get_pad_range(s);
+
+  if (s.ball.x >= 560 && s.ball.y >= min && s.ball.y <= max) {
+    return true;
+  } else if (
+    s.ball.x <= 40 &&
+    s.ball.y >= get_pad_rang_aie(s).min &&
+    s.ball.y <= get_pad_rang_aie(s).max
+  ) {
+    return true;
+  } else {
+    return false;
+  }
 }
 
+function get_new_ball_velocity(s: State): Vector {
+  // const new_ball_speedX: number =
+  //   s.ball.x < 0 || s.ball.x > 600 ? -s.ball.speedX : s.ball.speedX;
+  // const new_ball_speedY: number =
+  //   s.ball.y < 0 || s.ball.y > 600 ? -s.ball.speedY : s.ball.speedY;
+
+  return s.ball.x <= 5 || s.ball.x >= 600 || collision_with_paddle(s)
+    ? s.ball.velocity.x_reflect()
+    : s.ball.y <= 5 || s.ball.y >= 600
+    ? s.ball.velocity.y_reflect()
+    : s.ball.velocity;
+}
+
+// HAS SIDE EFFECTS
 function updateView(state: State): void {
   const paddle = document.getElementById("player_paddle")!;
   paddle.setAttribute(
@@ -154,27 +311,13 @@ function pong() {
   // You will be marked on your functional programming style
   // as well as the functionality that you implement.
   // Document your code!
-  fromEvent<KeyboardEvent>(document, "keydown")
+  interval(20)
     .pipe(
-      filter(({ code }) => code === "ArrowUp" || code === "ArrowDown"),
-      filter(({ repeat }) => !repeat),
-
-      flatMap((d) =>
-        interval(10).pipe(
-          takeUntil(
-            fromEvent<KeyboardEvent>(document, "keyup").pipe(
-              filter(({ code }) => code === d.code)
-            )
-          ),
-          map((_) => d)
-        )
-      ),
-
-      map(({ code }) => (code === "ArrowUp" ? -1 : 1)),
-      scan(move_paddle, initialState),
-      map(updateView)
+      map((elapsed) => new Tick(elapsed)),
+      merge(startLeftRotate, startRightRotate, stopLeftRotate, stopRightRotate),
+      scan(reduceState, initialState)
     )
-    .subscribe();
+    .subscribe(updateView);
 }
 
 // the following simply runs your pong function on window load.  Make sure to leave it in place.
