@@ -21,6 +21,15 @@ type Paddle_state = Readonly<{
   // held_powerup: null;
 }>;
 
+type heuristic = ball_state | null;
+
+type ai_state = Readonly<{
+  paddle: Paddle_state;
+  y_target: number;
+  difficulty: number;
+  heuristic_ball: heuristic;
+}>;
+
 type ball_state = Readonly<{
   y: number;
   x: number;
@@ -32,7 +41,7 @@ type ball_state = Readonly<{
 
 type State = Readonly<{
   player_paddle: Paddle_state;
-  cpu_paddle: Paddle_state;
+  ai_paddle: ai_state;
   ball: ball_state;
 }>;
 
@@ -57,15 +66,15 @@ class Vector {
 const initial_player_paddle_state: Paddle_state = {
   x: 565,
   y: 100,
-  speed: 20,
+  speed: 6,
   size: 1,
   direction: 0,
 };
 
-const initial_cpu_paddle_state: Paddle_state = {
+const initial_ai_paddle_state: Paddle_state = {
   x: 25,
   y: 100,
-  speed: 20,
+  speed: 4,
   size: 1,
   direction: 0,
 };
@@ -76,12 +85,19 @@ const initial_ball_State: ball_state = {
   speedX: -2,
   speedY: 3,
   size: 1,
-  velocity: new Vector(10, 1),
+  velocity: new Vector(4, 1),
+};
+
+const initial_ai_state: ai_state = {
+  paddle: initial_ai_paddle_state,
+  y_target: 300,
+  difficulty: 1,
+  heuristic_ball: null,
 };
 
 const initialState: State = {
   player_paddle: initial_player_paddle_state,
-  cpu_paddle: initial_cpu_paddle_state,
+  ai_paddle: initial_ai_state,
   ball: initial_ball_State,
 };
 
@@ -97,16 +113,17 @@ const get_pad_range: (s: State) => { min: Number; max: Number } = (
   };
 };
 
-const has_scored: (s: State) => boolean = (s: State) => s.ball.x >= 570;
+const has_scored: (s: State) => boolean = (s: State) => s.ball.x >= 564;
 
 const get_pad_rang_aie: (s: State) => { min: Number; max: Number } = (
   s: State
 ) => {
   return {
     max:
-      s.cpu_paddle.y + s.cpu_paddle.size * game_constants.STARTING_PADDLE_SIZE,
+      s.ai_paddle.paddle.y +
+      s.ai_paddle.paddle.size * game_constants.STARTING_PADDLE_SIZE,
 
-    min: s.cpu_paddle.y,
+    min: s.ai_paddle.paddle.y,
   };
 };
 
@@ -212,14 +229,52 @@ const reduceState = (s: State, e: move_player_paddle | Tick) =>
           ...s.player_paddle,
           y: get_new_player_y(s.player_paddle.direction)(s),
         },
-        cpu_paddle: {
-          ...s.cpu_paddle,
-          y: s.ball.y <= 550 ? s.ball.y - 20 : s.cpu_paddle.y,
+        ai_paddle: {
+          ...s.ai_paddle,
+          paddle: {
+            ...s.ai_paddle.paddle,
+            y:
+              Math.abs(s.ai_paddle.paddle.y - s.ai_paddle.y_target) <=
+              s.ai_paddle.paddle.speed
+                ? s.ai_paddle.paddle.y
+                : s.ai_paddle.paddle.y < s.ai_paddle.y_target
+                ? s.ai_paddle.paddle.y + s.ai_paddle.paddle.speed
+                : s.ai_paddle.paddle.y - s.ai_paddle.paddle.speed,
+          },
+          y_target:
+            s.ai_paddle.heuristic_ball !== null
+              ? s.ai_paddle.heuristic_ball.x < 40
+                ? s.ai_paddle.heuristic_ball.y - 40
+                : s.ai_paddle.y_target
+              : s.ai_paddle.y_target,
+
+          heuristic_ball:
+            s.ai_paddle.heuristic_ball !== null
+              ? s.ai_paddle.heuristic_ball.x < 40
+                ? null
+                : {
+                    ...s.ai_paddle.heuristic_ball,
+                    x:
+                      s.ai_paddle.heuristic_ball.x +
+                      get_new_ball_velocity_ai(s).dx * 2,
+                    y:
+                      s.ai_paddle.heuristic_ball.y +
+                      get_new_ball_velocity_ai(s).dy * 2,
+                    velocity: get_new_ball_velocity_ai(s),
+                  }
+              : collision_with_paddle_nai(s)
+              ? {
+                  ...s.ball,
+                  x: s.ball.x + get_new_ball_velocity(s).dx,
+                  y: s.ball.y + get_new_ball_velocity(s).dy,
+                  velocity: get_new_ball_velocity(s),
+                }
+              : null,
         },
         ball: {
           ...s.ball,
-          x: has_scored(s) ? 250 : s.ball.x + get_new_ball_velocity(s).dx,
-          y: has_scored(s) ? 250 : s.ball.y + get_new_ball_velocity(s).dy,
+          x: s.ball.x + get_new_ball_velocity(s).dx,
+          y: s.ball.y + get_new_ball_velocity(s).dy,
           velocity: get_new_ball_velocity(s),
         },
       };
@@ -228,17 +283,20 @@ const reduceState = (s: State, e: move_player_paddle | Tick) =>
  * @param s current overall state
  * @param position the position it is aiming to go to
  */
-function cpu_go_towards(s: State, position: Number): State {
+function cpu_go_towards(s: State): State {
   return {
     ...s, // copies the members of the input state for all but:
-    cpu_paddle: {
-      ...s.cpu_paddle,
-      y:
-        s.cpu_paddle.x < position
-          ? s.cpu_paddle.x == position
-            ? s.cpu_paddle.y
-            : s.cpu_paddle.y + s.cpu_paddle.speed
-          : s.cpu_paddle.y - s.cpu_paddle.speed,
+    ai_paddle: {
+      ...s.ai_paddle,
+      paddle: {
+        ...s.ai_paddle.paddle,
+        y:
+          s.ai_paddle.paddle.x < s.ai_paddle.y_target
+            ? s.ai_paddle.paddle.x == s.ai_paddle.y_target
+              ? s.ai_paddle.paddle.y
+              : s.ai_paddle.paddle.y + s.ai_paddle.paddle.speed
+            : s.ai_paddle.paddle.y - s.ai_paddle.paddle.speed,
+      },
     },
   };
 }
@@ -270,6 +328,16 @@ function collision_with_paddle(s: State): boolean {
   }
 }
 
+function collision_with_paddle_nai(s: State): boolean {
+  const { min, max } = get_pad_range(s);
+
+  if (s.ball.x >= 560 && s.ball.y >= min && s.ball.y <= max) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
 function get_new_ball_velocity(s: State): Vector {
   // const new_ball_speedX: number =
   //   s.ball.x < 0 || s.ball.x > 600 ? -s.ball.speedX : s.ball.speedX;
@@ -283,6 +351,36 @@ function get_new_ball_velocity(s: State): Vector {
     : s.ball.velocity;
 }
 
+// function get_new_ball_velocity_ai(s: State): Vector {
+//   // const new_ball_speedX: number =
+//   //   s.ball.x < 0 || s.ball.x > 600 ? -s.ball.speedX : s.ball.speedX;
+//   // const new_ball_speedY: number =
+//   //   s.ball.y < 0 || s.ball.y > 600 ? -s.ball.speedY : s.ball.speedY;
+
+//   return s.ai_paddle.heuristic_ball.x <= 5 ||
+//     s.ai_paddle.heuristic_ball.x >= 600 ||
+//     collision_with_paddle(s)
+//     ? s.ai_paddle.heuristic_ball.velocity.x_reflect()
+//     : s.ai_paddle.heuristic_ball.y <= 5 || s.ball.y >= 600
+//     ? s.ai_paddle.heuristic_ball.velocity.y_reflect()
+//     : s.ai_paddle.heuristic_ball.velocity;
+// }
+
+function get_new_ball_velocity_ai(s: State): Vector {
+  // const new_ball_speedX: number =
+  //   s.ball.x < 0 || s.ball.x > 600 ? -s.ball.speedX : s.ball.speedX;
+  // const new_ball_speedY: number =
+  //   s.ball.y < 0 || s.ball.y > 600 ? -s.ball.speedY : s.ball.speedY;
+
+  return s.ai_paddle.heuristic_ball.x <= 5 ||
+    s.ai_paddle.heuristic_ball.x >= 600 ||
+    collision_with_paddle(s)
+    ? s.ai_paddle.heuristic_ball.velocity.x_reflect()
+    : s.ai_paddle.heuristic_ball.y <= 5 || s.ai_paddle.heuristic_ball.y >= 600
+    ? s.ai_paddle.heuristic_ball.velocity.y_reflect()
+    : s.ai_paddle.heuristic_ball.velocity;
+}
+
 // HAS SIDE EFFECTS
 function updateView(state: State): void {
   const paddle = document.getElementById("player_paddle")!;
@@ -293,13 +391,20 @@ function updateView(state: State): void {
   const cpu_paddle = document.getElementById("cpu_paddle")!;
   cpu_paddle.setAttribute(
     "transform",
-    `translate(${state.cpu_paddle.x},${state.cpu_paddle.y}) scale(1 ${state.cpu_paddle.size})`
+    `translate(${state.ai_paddle.paddle.x},${state.ai_paddle.paddle.y}) scale(1 ${state.ai_paddle.paddle.size})`
   );
   const ball = document.getElementById("ball")!;
   ball.setAttribute(
     "transform",
     `translate(${state.ball.x},${state.ball.y}) scale(1 ${state.ball.size})`
   );
+  // const ball2 = document.getElementById("ball_test")!;
+  // if (state.ai_paddle.heuristic_ball !== null) {
+  //   ball2.setAttribute(
+  //     "transform",
+  //     `translate(${state.ai_paddle.heuristic_ball.x},${state.ai_paddle.heuristic_ball.y}) scale(1 ${state.ball.size})`
+  //   );
+  // }
 }
 
 function pong() {
@@ -311,7 +416,7 @@ function pong() {
   // You will be marked on your functional programming style
   // as well as the functionality that you implement.
   // Document your code!
-  interval(20)
+  interval(5)
     .pipe(
       map((elapsed) => new Tick(elapsed)),
       merge(startLeftRotate, startRightRotate, stopLeftRotate, stopRightRotate),
