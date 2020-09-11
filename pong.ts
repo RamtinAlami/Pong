@@ -66,7 +66,7 @@ class Vector {
 const initial_player_paddle_state: Paddle_state = {
   x: 565,
   y: 100,
-  speed: 6,
+  speed: 5,
   size: 1,
   direction: 0,
 };
@@ -74,7 +74,7 @@ const initial_player_paddle_state: Paddle_state = {
 const initial_ai_paddle_state: Paddle_state = {
   x: 25,
   y: 100,
-  speed: 4,
+  speed: 5,
   size: 1,
   direction: 0,
 };
@@ -85,7 +85,7 @@ const initial_ball_State: ball_state = {
   speedX: -2,
   speedY: 3,
   size: 1,
-  velocity: new Vector(4, 1),
+  velocity: new Vector(3.5, 1),
 };
 
 const initial_ai_state: ai_state = {
@@ -127,43 +127,7 @@ const get_pad_rang_aie: (s: State) => { min: Number; max: Number } = (
   };
 };
 
-// function move_paddle(s: State, direction: number): State {
-//   // curry it
-//   return {
-//     ...s, // copies the members of the input state for all but:
-//     player_paddle: {
-//       ...s.player_paddle,
-//       y:
-//         s.player_paddle.y + direction < 2
-//           ? 2
-//           : s.player_paddle.y + direction > 598 - s.player_paddle.size * 80
-//           ? 598 - s.player_paddle.size * 80
-//           : s.player_paddle.y + direction * s.player_paddle.speed,
-//     },
-//   };
-// }
-
 const game_constants = { MAX_X: 600, MAX_Y: 600, STARTING_PADDLE_SIZE: 80 };
-
-// const move_player_paddle: (direction: number) => (s: State) => State = (
-//   direction: number
-// ) => (s: State) => {
-//   return {
-//     ...s, // copies the members of the input state for all but:
-//     player_paddle: {
-//       ...s.player_paddle,
-//       y:
-//         s.player_paddle.y + direction < 0
-//           ? 0 // if the paddle goes above 0, then we set to 0 so the paddle does not go outside view
-//           : s.player_paddle.y + direction >
-//             game_constants.MAX_Y -
-//               s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE
-//           ? game_constants.MAX_Y -
-//             s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE    // If paddle goes bellow the MAX_Y, we set to MAX_Y + paddle size, so it doesn't go outside view
-//           : s.player_paddle.y + direction * s.player_paddle.speed,  // If paddle is middle of the view, then simply move the y value
-//     },
-//   };
-// };
 
 const get_new_player_y: (direction: number) => (s: State) => Number = (
   direction: number
@@ -182,6 +146,17 @@ class Tick {
 }
 class move_player_paddle {
   constructor(public readonly direction: number) {}
+}
+
+// Standard Normal variate using Box-Muller transform.
+function randn_bm(variance: number, mean: number): number {
+  var u = 0,
+    v = 0;
+  while (u === 0) u = Math.random(); //Converting [0,1) to (0,1)
+  while (v === 0) v = Math.random();
+  const Z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+  const X = variance * Z + mean;
+  return X;
 }
 
 type Event = "keydown" | "keyup";
@@ -242,9 +217,13 @@ const reduceState = (s: State, e: move_player_paddle | Tick) =>
                 : s.ai_paddle.paddle.y - s.ai_paddle.paddle.speed,
           },
           y_target:
-            s.ai_paddle.heuristic_ball !== null
+            s.ai_paddle.y_target > 540
+              ? 539
+              : s.ai_paddle.y_target < 0
+              ? 0
+              : s.ai_paddle.heuristic_ball !== null
               ? s.ai_paddle.heuristic_ball.x < 40
-                ? s.ai_paddle.heuristic_ball.y - 40
+                ? s.ai_paddle.heuristic_ball.y - 40 + randn_bm(0, 0)
                 : s.ai_paddle.y_target
               : s.ai_paddle.y_target,
 
@@ -301,17 +280,6 @@ function cpu_go_towards(s: State): State {
   };
 }
 
-// function move_ball(
-//   s: State
-// ): { new_ball_speedX: number; new_ball_speedY: number } {
-//   const new_ball_speedX: number =
-//     s.ball.x < 0 || s.ball.x > 600 ? -s.ball.speedX : s.ball.speedX;
-//   const new_ball_speedY: number =
-//     s.ball.y < 0 || s.ball.y > 600 ? -s.ball.speedY : s.ball.speedY;
-
-//   return { new_ball_speedX, new_ball_speedY };
-// }
-
 function collision_with_paddle(s: State): boolean {
   const { min, max } = get_pad_range(s);
 
@@ -351,21 +319,6 @@ function get_new_ball_velocity(s: State): Vector {
     : s.ball.velocity;
 }
 
-// function get_new_ball_velocity_ai(s: State): Vector {
-//   // const new_ball_speedX: number =
-//   //   s.ball.x < 0 || s.ball.x > 600 ? -s.ball.speedX : s.ball.speedX;
-//   // const new_ball_speedY: number =
-//   //   s.ball.y < 0 || s.ball.y > 600 ? -s.ball.speedY : s.ball.speedY;
-
-//   return s.ai_paddle.heuristic_ball.x <= 5 ||
-//     s.ai_paddle.heuristic_ball.x >= 600 ||
-//     collision_with_paddle(s)
-//     ? s.ai_paddle.heuristic_ball.velocity.x_reflect()
-//     : s.ai_paddle.heuristic_ball.y <= 5 || s.ball.y >= 600
-//     ? s.ai_paddle.heuristic_ball.velocity.y_reflect()
-//     : s.ai_paddle.heuristic_ball.velocity;
-// }
-
 function get_new_ball_velocity_ai(s: State): Vector {
   // const new_ball_speedX: number =
   //   s.ball.x < 0 || s.ball.x > 600 ? -s.ball.speedX : s.ball.speedX;
@@ -398,13 +351,13 @@ function updateView(state: State): void {
     "transform",
     `translate(${state.ball.x},${state.ball.y}) scale(1 ${state.ball.size})`
   );
-  // const ball2 = document.getElementById("ball_test")!;
-  // if (state.ai_paddle.heuristic_ball !== null) {
-  //   ball2.setAttribute(
-  //     "transform",
-  //     `translate(${state.ai_paddle.heuristic_ball.x},${state.ai_paddle.heuristic_ball.y}) scale(1 ${state.ball.size})`
-  //   );
-  // }
+  const ball2 = document.getElementById("ball_test")!;
+  if (state.ai_paddle.heuristic_ball !== null) {
+    ball2.setAttribute(
+      "transform",
+      `translate(${state.ai_paddle.heuristic_ball.x},${state.ai_paddle.heuristic_ball.y}) scale(1 ${state.ball.size})`
+    );
+  }
 }
 
 function pong() {
