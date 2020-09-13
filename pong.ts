@@ -17,17 +17,22 @@ type Paddle_state = Readonly<{
   speed: number;
   size: number;
   direction: number;
-  // active_powerup: null;
-  // held_powerup: null;
 }>;
 
-type heuristic = ball_state | null;
+type heuristic_ball = ball_state | null;
+
+type player_state = Readonly<{
+  paddle: Paddle_state;
+  // power_up_holding: number;
+  // activated_powerup: some_type_of_class_with_duration;
+}>;
 
 type ai_state = Readonly<{
   paddle: Paddle_state;
   y_target: number;
-  difficulty: number;
-  heuristic_ball: heuristic;
+  heuristic_ball: heuristic_ball;
+  // power_up_holding: number;
+  // activated_powerup: some_type_of_class_with_duration;
 }>;
 
 type ball_state = Readonly<{
@@ -39,10 +44,21 @@ type ball_state = Readonly<{
   velocity: Vector;
 }>;
 
+type power_up_ball_state = Readonly<{
+  y: number;
+  x: number;
+  velocity: Vector;
+  is_active: boolean;
+}>;
+
 type State = Readonly<{
   player_paddle: Paddle_state;
   ai_paddle: ai_state;
   ball: ball_state;
+  player_score: number;
+  ai_score: number;
+  difficulty: number;
+  is_paused: boolean;
 }>;
 
 class Vector {
@@ -91,7 +107,6 @@ const initial_ball_State: ball_state = {
 const initial_ai_state: ai_state = {
   paddle: initial_ai_paddle_state,
   y_target: 300,
-  difficulty: 1,
   heuristic_ball: null,
 };
 
@@ -99,6 +114,10 @@ const initialState: State = {
   player_paddle: initial_player_paddle_state,
   ai_paddle: initial_ai_state,
   ball: initial_ball_State,
+  player_score: 0,
+  ai_score: 0,
+  difficulty: 0,
+  is_paused: false,
 };
 
 const get_pad_range: (s: State) => { min: Number; max: Number } = (
@@ -127,7 +146,13 @@ const get_pad_rang_aie: (s: State) => { min: Number; max: Number } = (
   };
 };
 
-const game_constants = { MAX_X: 600, MAX_Y: 600, STARTING_PADDLE_SIZE: 80 };
+// const game_constants = { MAX_X: 600, MAX_Y: 600, STARTING_PADDLE_SIZE: 80 };
+
+const enum game_constants {
+  MAX_X = 600,
+  MAX_Y = 600,
+  STARTING_PADDLE_SIZE = 80,
+}
 
 const get_new_player_y: (direction: number) => (s: State) => Number = (
   direction: number
@@ -147,6 +172,9 @@ class Tick {
 class move_player_paddle {
   constructor(public readonly direction: number) {}
 }
+class pause {
+  constructor() {}
+}
 
 // Standard Normal variate using Box-Muller transform.
 function randn_bm(variance: number, mean: number): number {
@@ -160,7 +188,7 @@ function randn_bm(variance: number, mean: number): number {
 }
 
 type Event = "keydown" | "keyup";
-type Key = "ArrowUp" | "ArrowDown" | "Space";
+type Key = "ArrowUp" | "ArrowDown" | "Space" | "Escape";
 const observeKey = <T>(eventName: string, k: Key, result: () => T) =>
   fromEvent<KeyboardEvent>(document, eventName).pipe(
     filter(({ code }) => code === k),
@@ -188,6 +216,24 @@ const stopRightRotate = observeKey(
   "ArrowDown",
   () => new move_player_paddle(0)
 );
+
+const PauseGame = observeKey("keydown", "Escape", () => new pause());
+
+const prediction_deviation: (s: State) => number = (s: State) => {
+  const player_help = 0.5 * (1 / (1 + Math.exp(s.ai_score - 4))) + 0.05; // as the player scores they get less help
+  const ai_help = 0.35 * (1 / (1 + Math.exp(-s.player_score + 4))); // as the player scores they get less help
+  const variance = (player_help + ai_help) * 30;
+  const generated_number = randn_bm(variance, 0);
+  console.log(
+    s.player_score,
+    player_help,
+    s.ai_score,
+    ai_help,
+    variance,
+    generated_number
+  );
+  return generated_number;
+};
 
 const reduceState = (s: State, e: move_player_paddle | Tick) =>
   e instanceof move_player_paddle
@@ -223,8 +269,10 @@ const reduceState = (s: State, e: move_player_paddle | Tick) =>
               ? 0
               : s.ai_paddle.heuristic_ball !== null
               ? s.ai_paddle.heuristic_ball.x < 40
-                ? s.ai_paddle.heuristic_ball.y - 40 + randn_bm(0, 0)
+                ? s.ai_paddle.heuristic_ball.y - 40 + prediction_deviation(s)
                 : s.ai_paddle.y_target
+              : s.ball.x < 40
+              ? randn_bm(250, 260)
               : s.ai_paddle.y_target,
 
           heuristic_ball:
@@ -250,35 +298,18 @@ const reduceState = (s: State, e: move_player_paddle | Tick) =>
                 }
               : null,
         },
-        ball: {
-          ...s.ball,
-          x: s.ball.x + get_new_ball_velocity(s).dx,
-          y: s.ball.y + get_new_ball_velocity(s).dy,
-          velocity: get_new_ball_velocity(s),
-        },
+        ball:
+          s.ball.x > 562 || s.ball.x < 34
+            ? initial_ball_State
+            : {
+                ...s.ball,
+                x: s.ball.x + get_new_ball_velocity(s).dx,
+                y: s.ball.y + get_new_ball_velocity(s).dy,
+                velocity: get_new_ball_velocity(s),
+              },
+        player_score: s.ball.x > 590 ? s.player_score + 1 : s.player_score,
+        ai_score: s.ball.x < 30 ? s.ai_score + 1 : s.ai_score,
       };
-/**
- * Updates the state of cpu player by moving it towards a given position
- * @param s current overall state
- * @param position the position it is aiming to go to
- */
-function cpu_go_towards(s: State): State {
-  return {
-    ...s, // copies the members of the input state for all but:
-    ai_paddle: {
-      ...s.ai_paddle,
-      paddle: {
-        ...s.ai_paddle.paddle,
-        y:
-          s.ai_paddle.paddle.x < s.ai_paddle.y_target
-            ? s.ai_paddle.paddle.x == s.ai_paddle.y_target
-              ? s.ai_paddle.paddle.y
-              : s.ai_paddle.paddle.y + s.ai_paddle.paddle.speed
-            : s.ai_paddle.paddle.y - s.ai_paddle.paddle.speed,
-      },
-    },
-  };
-}
 
 function collision_with_paddle(s: State): boolean {
   const { min, max } = get_pad_range(s);
@@ -307,11 +338,6 @@ function collision_with_paddle_nai(s: State): boolean {
 }
 
 function get_new_ball_velocity(s: State): Vector {
-  // const new_ball_speedX: number =
-  //   s.ball.x < 0 || s.ball.x > 600 ? -s.ball.speedX : s.ball.speedX;
-  // const new_ball_speedY: number =
-  //   s.ball.y < 0 || s.ball.y > 600 ? -s.ball.speedY : s.ball.speedY;
-
   return s.ball.x <= 5 || s.ball.x >= 600 || collision_with_paddle(s)
     ? s.ball.velocity.x_reflect()
     : s.ball.y <= 5 || s.ball.y >= 600
@@ -320,11 +346,6 @@ function get_new_ball_velocity(s: State): Vector {
 }
 
 function get_new_ball_velocity_ai(s: State): Vector {
-  // const new_ball_speedX: number =
-  //   s.ball.x < 0 || s.ball.x > 600 ? -s.ball.speedX : s.ball.speedX;
-  // const new_ball_speedY: number =
-  //   s.ball.y < 0 || s.ball.y > 600 ? -s.ball.speedY : s.ball.speedY;
-
   return s.ai_paddle.heuristic_ball.x <= 5 ||
     s.ai_paddle.heuristic_ball.x >= 600 ||
     collision_with_paddle(s)
@@ -334,31 +355,165 @@ function get_new_ball_velocity_ai(s: State): Vector {
     : s.ai_paddle.heuristic_ball.velocity;
 }
 
-// HAS SIDE EFFECTS
-function updateView(state: State): void {
-  const paddle = document.getElementById("player_paddle")!;
-  paddle.setAttribute(
-    "transform",
-    `translate(${state.player_paddle.x},${state.player_paddle.y}) scale(1 ${state.player_paddle.size})`
-  );
-  const cpu_paddle = document.getElementById("cpu_paddle")!;
-  cpu_paddle.setAttribute(
-    "transform",
-    `translate(${state.ai_paddle.paddle.x},${state.ai_paddle.paddle.y}) scale(1 ${state.ai_paddle.paddle.size})`
-  );
-  const ball = document.getElementById("ball")!;
-  ball.setAttribute(
-    "transform",
-    `translate(${state.ball.x},${state.ball.y}) scale(1 ${state.ball.size})`
-  );
-  const ball2 = document.getElementById("ball_test")!;
-  if (state.ai_paddle.heuristic_ball !== null) {
-    ball2.setAttribute(
-      "transform",
-      `translate(${state.ai_paddle.heuristic_ball.x},${state.ai_paddle.heuristic_ball.y}) scale(1 ${state.ball.size})`
-    );
-  }
+// The following functions have side effects
+const enum Player_type {
+  CONTROLLED_PLAYER,
+  AI,
 }
+
+// TODO EXPLAIN THIS
+const enum Ent_type {
+  CONTROLLED_PLAYER = "player_paddle",
+  AI = "cpu_paddle",
+  main_ball = "ball",
+  heuristic_ball = "ai_heuristic_ball",
+}
+
+const rendered_entities: Array<Ent_type> = [
+  Ent_type.CONTROLLED_PLAYER,
+  Ent_type.AI,
+  Ent_type.main_ball,
+];
+
+// TODO WRITE DOCUMENTATION FOR THIS AND HOW I HAVE TO CHANGE ONE PLACE AS MY STATE EVOLVES
+const get_position_size: (
+  s: State
+) => (entity_type: Ent_type) => { x: number; y: number; size: number } = (
+  s: State
+) => (entity_type: Ent_type) => {
+  switch (entity_type) {
+    case Ent_type.CONTROLLED_PLAYER:
+      return {
+        x: s.player_paddle.x,
+        y: s.player_paddle.y,
+        size: s.player_paddle.size,
+      };
+      break;
+    case Ent_type.AI:
+      return {
+        x: s.ai_paddle.paddle.x,
+        y: s.ai_paddle.paddle.y,
+        size: s.ai_paddle.paddle.size,
+      };
+      break;
+    case Ent_type.main_ball:
+      return { x: s.ball.x, y: s.ball.y, size: s.ball.size };
+      break;
+    case Ent_type.heuristic_ball:
+      return {
+        x: s.ai_paddle.heuristic_ball.x,
+        y: s.ai_paddle.heuristic_ball.y,
+        size: s.ai_paddle.heuristic_ball.size,
+      };
+      break;
+    default:
+      // TODO ERROR
+      throw new Error("Something bad happened");
+  }
+};
+
+// TODO ADD DOCUMENTATION
+// ! HAS SIDE EFFECTS
+const apply_svg_transform: (
+  entity_type: Ent_type
+) => (x: number) => (y: number) => (scale: number) => void = (
+  entity_type: Ent_type
+) => (x: number) => (y: number) => (scale: number) => {
+  const entity = document.getElementById(entity_type)!;
+  entity.setAttribute("transform", `translate(${x},${y}) scale(${scale})`);
+};
+
+// TODO DOCUMENTATION THE FIRST INPUT IS POSITION GETTER
+// ! HAS SIDE EFFECTS
+const update_entity: (
+  pos_size_getter: (
+    entity_type: Ent_type
+  ) => { x: number; y: number; size: number }
+) => (entity_type: Ent_type) => void = (
+  pos_size_getter: (
+    entity_type: Ent_type
+  ) => { x: number; y: number; size: number }
+) => (entity_type: Ent_type) => {
+  const controller_position_size = pos_size_getter(entity_type);
+  apply_svg_transform(entity_type)(controller_position_size.x)(
+    controller_position_size.y
+  )(controller_position_size.size);
+};
+
+const get_side_score: (s: State) => (side: Player_type) => number = (
+  s: State
+) => (side: Player_type) => {
+  switch (side) {
+    case Player_type.CONTROLLED_PLAYER:
+      return s.player_score;
+      break;
+    case Player_type.AI:
+      return s.ai_score;
+      break;
+    default:
+      throw new Error("Something bad happened");
+      break;
+  }
+};
+
+// TODO WRITE DOCO ON TO WHY THIS?
+const get_score_ui_prefix: (side: Player_type) => string = (
+  side: Player_type
+) => (side == Player_type.AI ? "ai_ui_score_" : "player_ui_score_");
+
+// ! HAS SIDE EFFECTS
+const update_score_GUI: (
+  get_score: (side: Player_type) => number
+) => (side: Player_type) => void = (
+  get_score: (side: Player_type) => number
+) => (side: Player_type) => {
+  const score = get_score(side);
+  const html_score_id_prefix = get_score_ui_prefix(side);
+  if (score > 0 && score <= 7) {
+    const ui_score_object = document.getElementById(
+      html_score_id_prefix + String(score)
+    )!;
+    ui_score_object.setAttribute("fill", `white`);
+  } else {
+    reset_score();
+  }
+};
+
+// TODO TEST THIS BOI
+// TODO REPLACE 7 WITH MAX SCORE
+// ! HAS SIDE EFFECTS
+function reset_score(): void {
+  // TODO WRITE SOME DOCO AND RECURSIVE NATURE
+  const reset_score_aux: (html_score_id_prefix) => (current_score) => void = (
+    html_score_id_prefix
+  ) => (current_score) => {
+    if (current_score == 0) {
+      return;
+    }
+    const ui_score_object = document.getElementById(
+      html_score_id_prefix + String(current_score)
+    )!;
+    ui_score_object.setAttribute("fill", `none`);
+    reset_score_aux(html_score_id_prefix)(current_score - 1);
+  };
+
+  reset_score_aux(get_score_ui_prefix(Player_type.CONTROLLED_PLAYER))(7);
+  reset_score_aux(get_score_ui_prefix(Player_type.AI))(7);
+}
+
+// ! HAS SIDE EFFECTS
+function updateView(state: State): void {
+  const pos_size_getter = get_position_size(state);
+  // TODO CONVERT NORMAL FUNCTION TO UNARY
+  rendered_entities.map(update_entity(pos_size_getter));
+
+  // ONLY TWO ENTITIES THUS NOT WORTH MAKING LIST
+  const score_getter = get_side_score(state);
+  update_score_GUI(score_getter)(Player_type.CONTROLLED_PLAYER);
+  update_score_GUI(score_getter)(Player_type.AI);
+}
+
+function reset_display(): void {}
 
 function pong() {
   // Inside this function you will use the classes and functions
