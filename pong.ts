@@ -51,14 +51,22 @@ type power_up_ball_state = Readonly<{
   is_active: boolean;
 }>;
 
+type Meta_State = Readonly<{
+  difficulty: number;
+  has_started: boolean;
+  is_paused: boolean;
+  show_active_line: boolean;
+  button_clicked: number; // 0 is none, 1,2,3 are options
+}>;
+
 type State = Readonly<{
   player_paddle: Paddle_state;
   ai_paddle: ai_state;
   ball: ball_state;
+  power_up_ball: power_up_ball_state;
   player_score: number;
   ai_score: number;
-  difficulty: number;
-  is_paused: boolean;
+  meta_state: Meta_State;
 }>;
 
 class Vector {
@@ -76,7 +84,12 @@ class Vector {
   scale = (scale: number) => new Vector(this.magnitude * scale, this.angle);
   x_reflect = () => new Vector(-this.magnitude, -this.angle);
   y_reflect = () => new Vector(this.magnitude, -this.angle);
-  // y_reflect = () => new Vector(this.magnitude, this.angle)
+  y_reflect_paddle = (strength: number) => {
+    const new_mag = this.magnitude * strength;
+    // Only change the angle if strength a lot more
+    const new_angle = -(this.angle + (strength > 1 ? strength : 0));
+    return new Vector(this.magnitude, -this.angle);
+  };
 }
 
 const initial_player_paddle_state: Paddle_state = {
@@ -110,14 +123,29 @@ const initial_ai_state: ai_state = {
   heuristic_ball: null,
 };
 
+const initial_meta_state: Meta_State = {
+  difficulty: 0,
+  is_paused: true,
+  has_started: false,
+  show_active_line: false,
+  button_clicked: 0,
+};
+
+const initial_pb_state: power_up_ball_state = {
+  y: 200,
+  x: 100,
+  velocity: new Vector(1, 1),
+  is_active: false,
+};
+
 const initialState: State = {
   player_paddle: initial_player_paddle_state,
   ai_paddle: initial_ai_state,
   ball: initial_ball_State,
   player_score: 0,
   ai_score: 0,
-  difficulty: 0,
-  is_paused: false,
+  meta_state: initial_meta_state,
+  power_up_ball: initial_pb_state,
 };
 
 const get_pad_range: (s: State) => { min: Number; max: Number } = (
@@ -172,17 +200,44 @@ class Tick {
 class move_player_paddle {
   constructor(public readonly direction: number) {}
 }
+
+class mouse_click {
+  constructor(public readonly x: number, y: number) {}
+}
+
+// ! DID THIS FOR CONSISTANCY BUT NOT REALLY REQUIRED SINCE NO STORED
 class pause {
   constructor() {}
 }
 
+// LCG using GCC's constants
+// ! BASED ON WEEK 5 OBSERVABLES.TS
+const psudo_randm: (seed: number) => number = (seed: number) => {
+  return ((1103515245 * seed + 12345) % 0x80000000) / (0x80000000 - 1);
+};
+
+// ! returns 1 or 2 or 3 for buttons, and returns 0 for others
+function button_click_check(x: number, y: number) {
+  if (x > 173 && x < 443) {
+    if (y > 278 && y < 342) {
+      return 1;
+    } else if (y > 362 && y < 432) {
+      return 2;
+    } else if (y > 442 && y < 505) {
+      return 3;
+    }
+  }
+  return 0;
+}
+
 // Standard Normal variate using Box-Muller transform.
-function randn_bm(variance: number, mean: number): number {
-  var u = 0,
-    v = 0;
-  while (u === 0) u = Math.random(); //Converting [0,1) to (0,1)
-  while (v === 0) v = Math.random();
+function randn_bm(seed: number, variance: number, mean: number): number {
+  const u = psudo_randm(seed);
+  const v = psudo_randm(seed + 1);
+  // standard normal dist
   const Z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+
+  // convert standard normal to our case
   const X = variance * Z + mean;
   return X;
 }
@@ -196,22 +251,37 @@ const observeKey = <T>(eventName: string, k: Key, result: () => T) =>
     map(result)
   );
 
-const startLeftRotate = observeKey(
+// const observeMouse = <T>(result: () => T) =>
+//   fromEvent(document, "mousedown").pipe(map(result));
+
+const observeMouse = <T>(result: (clientX: number, clientY: number) => T) =>
+  fromEvent<MouseEvent>(document, "mousedown").pipe(
+    map(({ clientX, clientY }) => result(clientX, clientY))
+  );
+
+// const observeMouse = <T>(result: () => T) => {
+//   fromEvent<MouseEvent>(document, "mousedown").pipe(
+//     filter((r) => r !== undefined),
+//     map(result)
+//   );
+// };
+
+const startUpMove = observeKey(
   "keydown",
   "ArrowUp",
   () => new move_player_paddle(-1)
 );
-const startRightRotate = observeKey(
+const StartDownMove = observeKey(
   "keydown",
   "ArrowDown",
   () => new move_player_paddle(1)
 );
-const stopLeftRotate = observeKey(
+const StopUpMove = observeKey(
   "keyup",
   "ArrowUp",
   () => new move_player_paddle(0)
 );
-const stopRightRotate = observeKey(
+const StopDownMove = observeKey(
   "keyup",
   "ArrowDown",
   () => new move_player_paddle(0)
@@ -219,11 +289,13 @@ const stopRightRotate = observeKey(
 
 const PauseGame = observeKey("keydown", "Escape", () => new pause());
 
+const mouseObs = observeMouse((x, y) => new mouse_click(x, y));
+
 const prediction_deviation: (s: State) => number = (s: State) => {
   const player_help = 0.5 * (1 / (1 + Math.exp(s.ai_score - 4))) + 0.05; // as the player scores they get less help
   const ai_help = 0.35 * (1 / (1 + Math.exp(-s.player_score + 4))); // as the player scores they get less help
   const variance = (player_help + ai_help) * 30;
-  const generated_number = randn_bm(variance, 0);
+  const generated_number = randn_bm(10, variance, 0);
   console.log(
     s.player_score,
     player_help,
@@ -235,8 +307,23 @@ const prediction_deviation: (s: State) => number = (s: State) => {
   return generated_number;
 };
 
-const reduceState = (s: State, e: move_player_paddle | Tick) =>
-  e instanceof move_player_paddle
+const reduceState = (
+  s: State,
+  e: move_player_paddle | Tick | pause | mouse_click
+) =>
+  s.meta_state.is_paused
+    ? e instanceof mouse_click
+      ? { ...s, meta_state: { ...s.meta_state, button_clicked: 1 } }
+      : e instanceof pause
+      ? {
+          ...s,
+          meta_state: {
+            ...s.meta_state,
+            is_paused: !s.meta_state.is_paused,
+          },
+        }
+      : s
+    : e instanceof move_player_paddle
     ? {
         ...s,
         player_paddle: {
@@ -244,7 +331,16 @@ const reduceState = (s: State, e: move_player_paddle | Tick) =>
           direction: e.direction,
         },
       }
-    : {
+    : e instanceof pause
+    ? {
+        ...s,
+        meta_state: {
+          ...s.meta_state,
+          is_paused: !s.meta_state.is_paused,
+        },
+      }
+    : e instanceof Tick
+    ? {
         ...s,
         player_paddle: {
           ...s.player_paddle,
@@ -272,7 +368,7 @@ const reduceState = (s: State, e: move_player_paddle | Tick) =>
                 ? s.ai_paddle.heuristic_ball.y - 40 + prediction_deviation(s)
                 : s.ai_paddle.y_target
               : s.ball.x < 40
-              ? randn_bm(250, 260)
+              ? randn_bm(200, 250, 300)
               : s.ai_paddle.y_target,
 
           heuristic_ball:
@@ -309,7 +405,8 @@ const reduceState = (s: State, e: move_player_paddle | Tick) =>
               },
         player_score: s.ball.x > 590 ? s.player_score + 1 : s.player_score,
         ai_score: s.ball.x < 30 ? s.ai_score + 1 : s.ai_score,
-      };
+      }
+    : s;
 
 function collision_with_paddle(s: State): boolean {
   const { min, max } = get_pad_range(s);
@@ -369,6 +466,7 @@ const enum Ent_type {
   heuristic_ball = "ai_heuristic_ball",
 }
 
+// for debugging, can add more
 const rendered_entities: Array<Ent_type> = [
   Ent_type.CONTROLLED_PLAYER,
   Ent_type.AI,
@@ -501,16 +599,52 @@ function reset_score(): void {
   reset_score_aux(get_score_ui_prefix(Player_type.AI))(7);
 }
 
+const enum MenuType {
+  PauseMenu = "pauseMenu",
+  EndMenu = "EndGameMenu",
+  StartMenu = "startMenu",
+}
+
+function displayMenu(m: MenuType, display: boolean): void {
+  const entity = document.getElementById(m)!;
+  if (display) {
+    entity.setAttribute("style", `visibility: visible`);
+  } else {
+    entity.setAttribute("style", `visibility: hidden`);
+  }
+}
+
 // ! HAS SIDE EFFECTS
 function updateView(state: State): void {
-  const pos_size_getter = get_position_size(state);
-  // TODO CONVERT NORMAL FUNCTION TO UNARY
-  rendered_entities.map(update_entity(pos_size_getter));
+  displayMenu(
+    MenuType.PauseMenu,
+    state.meta_state.is_paused &&
+      state.meta_state.has_started &&
+      !(state.ai_score >= 7 || state.player_score >= 7)
+  );
 
-  // ONLY TWO ENTITIES THUS NOT WORTH MAKING LIST
-  const score_getter = get_side_score(state);
-  update_score_GUI(score_getter)(Player_type.CONTROLLED_PLAYER);
-  update_score_GUI(score_getter)(Player_type.AI);
+  displayMenu(
+    MenuType.StartMenu,
+    state.meta_state.is_paused && !state.meta_state.has_started
+  );
+
+  displayMenu(
+    MenuType.EndMenu,
+    state.meta_state.is_paused &&
+      (state.ai_score >= 7 || state.player_score >= 7)
+  );
+
+  //makes game slightly fast
+  if (!state.meta_state.is_paused) {
+    const pos_size_getter = get_position_size(state);
+    // TODO CONVERT NORMAL FUNCTION TO UNARY
+    rendered_entities.map(update_entity(pos_size_getter));
+
+    // ONLY TWO ENTITIES THUS NOT WORTH MAKING LIST
+    const score_getter = get_side_score(state);
+    update_score_GUI(score_getter)(Player_type.CONTROLLED_PLAYER);
+    update_score_GUI(score_getter)(Player_type.AI);
+  }
 }
 
 function reset_display(): void {}
@@ -527,7 +661,14 @@ function pong() {
   interval(5)
     .pipe(
       map((elapsed) => new Tick(elapsed)),
-      merge(startLeftRotate, startRightRotate, stopLeftRotate, stopRightRotate),
+      merge(
+        startUpMove,
+        StartDownMove,
+        StopUpMove,
+        StopDownMove,
+        PauseGame,
+        mouseObs
+      ),
       scan(reduceState, initialState)
     )
     .subscribe(updateView);
