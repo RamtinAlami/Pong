@@ -56,6 +56,8 @@ type Meta_State = Readonly<{
   has_started: boolean;
   is_paused: boolean;
   show_active_line: boolean;
+  has_ended: boolean;
+  rand_seed: number;
   button_clicked: number; // 0 is none, 1,2,3 are options
 }>;
 
@@ -124,11 +126,13 @@ const initial_ai_state: ai_state = {
 };
 
 const initial_meta_state: Meta_State = {
-  difficulty: 0,
+  difficulty: 3,
   is_paused: true,
   has_started: false,
   show_active_line: false,
+  has_ended: false,
   button_clicked: 0,
+  rand_seed: 1,
 };
 
 const initial_pb_state: power_up_ball_state = {
@@ -148,6 +152,7 @@ const initialState: State = {
   power_up_ball: initial_pb_state,
 };
 
+// NEED TO COMBINED TWO INTO ONE AND USE TYPE
 const get_pad_range: (s: State) => { min: Number; max: Number } = (
   s: State
 ) => {
@@ -180,9 +185,11 @@ const enum game_constants {
   MAX_X = 600,
   MAX_Y = 600,
   STARTING_PADDLE_SIZE = 80,
+  STARTING_BALL_SIZE = 14,
+  MAX_SCORE = 7,
 }
 
-const get_new_player_y: (direction: number) => (s: State) => Number = (
+const get_new_player_y: (direction: number) => (s: State) => number = (
   direction: number
 ) => (s: State) => {
   return s.player_paddle.y + direction < 0
@@ -202,10 +209,10 @@ class move_player_paddle {
 }
 
 class mouse_click {
-  constructor(public readonly x: number, y: number) {}
+  constructor(public readonly x: number, public readonly y: number) {}
 }
 
-// ! DID THIS FOR CONSISTANCY BUT NOT REALLY REQUIRED SINCE NO STORED
+// ! DID THIS FOR CONSISTENCY BUT NOT REALLY REQUIRED SINCE NO STORED
 class pause {
   constructor() {}
 }
@@ -217,7 +224,7 @@ const psudo_randm: (seed: number) => number = (seed: number) => {
 };
 
 // ! returns 1 or 2 or 3 for buttons, and returns 0 for others
-function button_click_check(x: number, y: number) {
+function button_click_check(x: number, y: number): number {
   if (x > 173 && x < 443) {
     if (y > 278 && y < 342) {
       return 1;
@@ -228,6 +235,12 @@ function button_click_check(x: number, y: number) {
     }
   }
   return 0;
+}
+
+// sets seed to mouse x ** y position
+// to be used at the start
+function set_seed(s: State, x: number, y: number): State {
+  return { ...s, meta_state: { ...s.meta_state, rand_seed: x ** y } };
 }
 
 // Standard Normal variate using Box-Muller transform.
@@ -251,20 +264,10 @@ const observeKey = <T>(eventName: string, k: Key, result: () => T) =>
     map(result)
   );
 
-// const observeMouse = <T>(result: () => T) =>
-//   fromEvent(document, "mousedown").pipe(map(result));
-
 const observeMouse = <T>(result: (clientX: number, clientY: number) => T) =>
   fromEvent<MouseEvent>(document, "mousedown").pipe(
     map(({ clientX, clientY }) => result(clientX, clientY))
   );
-
-// const observeMouse = <T>(result: () => T) => {
-//   fromEvent<MouseEvent>(document, "mousedown").pipe(
-//     filter((r) => r !== undefined),
-//     map(result)
-//   );
-// };
 
 const startUpMove = observeKey(
   "keydown",
@@ -294,120 +297,299 @@ const mouseObs = observeMouse((x, y) => new mouse_click(x, y));
 const prediction_deviation: (s: State) => number = (s: State) => {
   const player_help = 0.5 * (1 / (1 + Math.exp(s.ai_score - 4))) + 0.05; // as the player scores they get less help
   const ai_help = 0.35 * (1 / (1 + Math.exp(-s.player_score + 4))); // as the player scores they get less help
-  const variance = (player_help + ai_help) * 30;
+  const variance = (player_help + ai_help) * (90 / s.meta_state.difficulty); // 1, 2 or 3
   const generated_number = randn_bm(10, variance, 0);
-  console.log(
-    s.player_score,
-    player_help,
-    s.ai_score,
-    ai_help,
-    variance,
-    generated_number
-  );
   return generated_number;
 };
 
+type EventType = move_player_paddle | Tick | pause | mouse_click;
+
+// used for keyboard to update
+function move_player_paddle_func(s: State, e: EventType): State {
+  if (!(e instanceof move_player_paddle)) throw "Wrong Type";
+  return {
+    ...s,
+    player_paddle: {
+      ...s.player_paddle,
+      direction: e.direction,
+    },
+  };
+}
+
+function pause_func(s: State, e: EventType): State {
+  if (s.meta_state.has_started && !s.meta_state.has_ended) {
+    return {
+      ...s,
+      meta_state: {
+        ...s.meta_state,
+        is_paused: !s.meta_state.is_paused,
+      },
+    };
+  } else {
+    return s;
+  }
+}
+
+function set_difficulty(new_difficulty: number, s: State): State {
+  return {
+    ...s,
+    meta_state: { ...s.meta_state, difficulty: new_difficulty },
+  };
+}
+
+function set_start(s: State): State {
+  return {
+    ...s,
+    meta_state: { ...s.meta_state, has_started: true, is_paused: false },
+  };
+}
+
+function unpause(s: State): State {
+  return {
+    ...s,
+    meta_state: { ...s.meta_state, is_paused: false },
+  };
+}
+
+function game_start_menu(s: State, mouse_x: number, mouse_y: number) {
+  const seed_set_s = set_seed(s, mouse_x, mouse_y);
+  const button_clicked = button_click_check(mouse_x, mouse_y); // only return 1, 2, 3 or 0 if
+  if (button_clicked != 0) {
+    const diff_set_s = set_difficulty(button_clicked, seed_set_s);
+    // ! TODO FIX THIS
+    return set_start(diff_set_s);
+  } else {
+    return s;
+  }
+}
+
+function reset_game() {
+  return initialState;
+}
+
+// TODO CHECK TWO IF STATEMENTS
+function pause_menu(s: State, mouse_x: number, mouse_y: number): State {
+  const button_clicked = button_click_check(mouse_x, mouse_y); // only return 1, 2, 3 or 0 if none
+  if (button_clicked == 1) {
+    return unpause(s);
+  }
+  if (button_clicked == 2) {
+    return reset_game();
+  } else {
+    return s;
+  }
+}
+
+function end_menu(s: State, mouse_x: number, mouse_y: number): State {
+  const button_clicked = button_click_check(mouse_x, mouse_y); // only return 1, 2, 3 or 0 if none
+  if (button_clicked == 1) {
+    return reset_game();
+  } else {
+    return s;
+  }
+}
+
+function mouse_click_func(s: State, e: EventType): State {
+  if (!(e instanceof mouse_click)) throw "wrong";
+
+  if (!s.meta_state.has_started) {
+    return game_start_menu(s, e.x, e.y);
+  } else if (s.meta_state.has_ended) {
+    return end_menu(s, e.x, e.y);
+  } else {
+    return pause_menu(s, e.x, e.y);
+  }
+  return s;
+}
+
+const move_player_tick_function: (s: State) => State = (s: State) => {
+  const new_player_y: number = get_new_player_y(s.player_paddle.direction)(s);
+  return {
+    ...s,
+    player_paddle: {
+      ...s.player_paddle,
+      y: new_player_y,
+    },
+  };
+};
+
+// returns a number between 0-600 based on new target_y
+function get_new_ai_y(curr_y, target_y, paddle_speed): number {
+  // since we can't get perfect, it aims to be in the range of speed
+  if (Math.abs(curr_y - target_y) <= paddle_speed) return curr_y;
+  // if not in the range, check if current > target, then reduce, if less add
+  else return curr_y < target_y ? curr_y + paddle_speed : curr_y - paddle_speed;
+}
+
+// finds the new y
+function move_ai_tick_function(s: State): State {
+  const new_ai_y: number = get_new_ai_y(
+    s.ai_paddle.paddle.y,
+    s.ai_paddle.y_target,
+    s.ai_paddle.paddle.speed
+  );
+  return {
+    ...s,
+    ai_paddle: {
+      ...s.ai_paddle,
+      paddle: {
+        ...s.ai_paddle.paddle,
+        y: new_ai_y,
+      },
+    },
+  };
+}
+
+function find_ai_target_tick_function(s: State): State {
+  const new_player_y: number = get_new_player_y(s.player_paddle.direction)(s);
+  return {
+    ...s,
+    ai_paddle: {
+      ...s.ai_paddle,
+      y_target:
+        s.ai_paddle.y_target > 540
+          ? 539
+          : s.ai_paddle.y_target < 0
+          ? 0
+          : s.ai_paddle.heuristic_ball !== null
+          ? s.ai_paddle.heuristic_ball.x < 40
+            ? s.ai_paddle.heuristic_ball.y - 40 + prediction_deviation(s)
+            : s.ai_paddle.y_target
+          : s.ball.x < 40
+          ? randn_bm(200, 250, 300)
+          : s.ai_paddle.y_target,
+    },
+  };
+}
+
+function move_heuristic_ball_tick_function(s: State): State {
+  const new_player_y: number = get_new_player_y(s.player_paddle.direction)(s);
+  return {
+    ...s,
+    ai_paddle: {
+      ...s.ai_paddle,
+      heuristic_ball:
+        s.ai_paddle.heuristic_ball !== null
+          ? s.ai_paddle.heuristic_ball.x < 40
+            ? null
+            : {
+                ...s.ai_paddle.heuristic_ball,
+                x:
+                  s.ai_paddle.heuristic_ball.x +
+                  get_new_ball_velocity_ai(s).dx * 2,
+                y:
+                  s.ai_paddle.heuristic_ball.y +
+                  get_new_ball_velocity_ai(s).dy * 2,
+                velocity: get_new_ball_velocity_ai(s),
+              }
+          : collision_with_paddle_nai(s)
+          ? {
+              ...s.ball,
+              x: s.ball.x + get_new_ball_velocity(s).dx,
+              y: s.ball.y + get_new_ball_velocity(s).dy,
+              velocity: get_new_ball_velocity(s),
+            }
+          : null,
+    },
+  };
+}
+
+function move_ball_tick_function(s: State): State {
+  // const new_player_y: number = get_new_player_y(s.player_paddle.direction)(s);
+  return {
+    ...s,
+    ball:
+      s.ball.x > 562 || s.ball.x < 34
+        ? initial_ball_State
+        : {
+            ...s.ball,
+            x: s.ball.x + get_new_ball_velocity(s).dx,
+            y: s.ball.y + get_new_ball_velocity(s).dy,
+            velocity: get_new_ball_velocity(s),
+          },
+  };
+}
+
+function update_score_tick_function(s: State): State {
+  // const new_player_y: number = get_new_player_y(s.player_paddle.direction)(s);
+  return {
+    ...s,
+    player_score: s.ball.x > 562 ? s.player_score + 1 : s.player_score,
+    ai_score: s.ball.x < 34 ? s.ai_score + 1 : s.ai_score,
+  };
+}
+
+// TODO SET THE 1000 to a constant that is max_rand_num_get
+function update_seed_tick_function(s: State): State {
+  // const new_player_y: number = get_new_player_y(s.player_paddle.direction)(s);
+  return {
+    ...s,
+    meta_state: {
+      ...s.meta_state,
+      rand_seed: s.meta_state.rand_seed + 1000,
+    },
+  };
+}
+
+// HERE BECAUSE WE NEED TO HAVE ABSTRACTION
+function check_end_game_tick_function(s: State): State {
+  const game_ended: boolean = s.player_score >= 7 || s.ai_score >= 7;
+  return {
+    ...s,
+    meta_state: {
+      ...s.meta_state,
+      is_paused: game_ended,
+      has_ended: game_ended,
+    },
+  };
+}
+
+function Tick_func(s: State, e: EventType): State {
+  const tick_functions: Array<(s: State) => State> = [
+    move_player_tick_function,
+    move_ai_tick_function,
+    find_ai_target_tick_function,
+    move_heuristic_ball_tick_function,
+    move_ball_tick_function,
+    update_score_tick_function,
+    update_seed_tick_function,
+    check_end_game_tick_function,
+    check_end_game_tick_function,
+  ];
+
+  // if game is paused, then tick functions is not performed to preserve state
+  const new_state = s.meta_state.is_paused
+    ? s
+    : tick_functions.reduce((v, f) => f(v), s);
+
+  return new_state;
+}
+
+// TODO FIX THIS TO OLD IF STATEMENT VERSION
 const reduceState = (
   s: State,
   e: move_player_paddle | Tick | pause | mouse_click
-) =>
-  s.meta_state.is_paused
-    ? e instanceof mouse_click
-      ? { ...s, meta_state: { ...s.meta_state, button_clicked: 1 } }
-      : e instanceof pause
-      ? {
-          ...s,
-          meta_state: {
-            ...s.meta_state,
-            is_paused: !s.meta_state.is_paused,
-          },
-        }
-      : s
-    : e instanceof move_player_paddle
-    ? {
-        ...s,
-        player_paddle: {
-          ...s.player_paddle,
-          direction: e.direction,
-        },
-      }
-    : e instanceof pause
-    ? {
-        ...s,
-        meta_state: {
-          ...s.meta_state,
-          is_paused: !s.meta_state.is_paused,
-        },
-      }
-    : e instanceof Tick
-    ? {
-        ...s,
-        player_paddle: {
-          ...s.player_paddle,
-          y: get_new_player_y(s.player_paddle.direction)(s),
-        },
-        ai_paddle: {
-          ...s.ai_paddle,
-          paddle: {
-            ...s.ai_paddle.paddle,
-            y:
-              Math.abs(s.ai_paddle.paddle.y - s.ai_paddle.y_target) <=
-              s.ai_paddle.paddle.speed
-                ? s.ai_paddle.paddle.y
-                : s.ai_paddle.paddle.y < s.ai_paddle.y_target
-                ? s.ai_paddle.paddle.y + s.ai_paddle.paddle.speed
-                : s.ai_paddle.paddle.y - s.ai_paddle.paddle.speed,
-          },
-          y_target:
-            s.ai_paddle.y_target > 540
-              ? 539
-              : s.ai_paddle.y_target < 0
-              ? 0
-              : s.ai_paddle.heuristic_ball !== null
-              ? s.ai_paddle.heuristic_ball.x < 40
-                ? s.ai_paddle.heuristic_ball.y - 40 + prediction_deviation(s)
-                : s.ai_paddle.y_target
-              : s.ball.x < 40
-              ? randn_bm(200, 250, 300)
-              : s.ai_paddle.y_target,
+): State => {
+  switch (e.constructor) {
+    case mouse_click:
+      return mouse_click_func(s, e);
+      break;
+    case move_player_paddle:
+      return move_player_paddle_func(s, e);
+      break;
+    case pause:
+      return pause_func(s, e);
+      break;
+    case Tick:
+      return Tick_func(s, e);
+      break;
+    default:
+      return s;
+      break;
+  }
+};
 
-          heuristic_ball:
-            s.ai_paddle.heuristic_ball !== null
-              ? s.ai_paddle.heuristic_ball.x < 40
-                ? null
-                : {
-                    ...s.ai_paddle.heuristic_ball,
-                    x:
-                      s.ai_paddle.heuristic_ball.x +
-                      get_new_ball_velocity_ai(s).dx * 2,
-                    y:
-                      s.ai_paddle.heuristic_ball.y +
-                      get_new_ball_velocity_ai(s).dy * 2,
-                    velocity: get_new_ball_velocity_ai(s),
-                  }
-              : collision_with_paddle_nai(s)
-              ? {
-                  ...s.ball,
-                  x: s.ball.x + get_new_ball_velocity(s).dx,
-                  y: s.ball.y + get_new_ball_velocity(s).dy,
-                  velocity: get_new_ball_velocity(s),
-                }
-              : null,
-        },
-        ball:
-          s.ball.x > 562 || s.ball.x < 34
-            ? initial_ball_State
-            : {
-                ...s.ball,
-                x: s.ball.x + get_new_ball_velocity(s).dx,
-                y: s.ball.y + get_new_ball_velocity(s).dy,
-                velocity: get_new_ball_velocity(s),
-              },
-        player_score: s.ball.x > 590 ? s.player_score + 1 : s.player_score,
-        ai_score: s.ball.x < 30 ? s.ai_score + 1 : s.ai_score,
-      }
-    : s;
-
+// TURN THIS INTO A SMALLER RESULABLES ONE BY COMBINING TWO
 function collision_with_paddle(s: State): boolean {
   const { min, max } = get_pad_range(s);
 
@@ -434,6 +616,7 @@ function collision_with_paddle_nai(s: State): boolean {
   }
 }
 
+// SET THIS UP INTO ONE
 function get_new_ball_velocity(s: State): Vector {
   return s.ball.x <= 5 || s.ball.x >= 600 || collision_with_paddle(s)
     ? s.ball.velocity.x_reflect()
@@ -572,8 +755,6 @@ const update_score_GUI: (
       html_score_id_prefix + String(score)
     )!;
     ui_score_object.setAttribute("fill", `white`);
-  } else {
-    reset_score();
   }
 };
 
@@ -614,8 +795,49 @@ function displayMenu(m: MenuType, display: boolean): void {
   }
 }
 
+// ! HAS SIDE EFFECT
+function updateWinText(player_won: boolean): void {
+  // FIRST RESET BOTH
+
+  // SET THE RIGHT ONE
+  const html_tag_text_winner = player_won ? "end_win" : "end_lose";
+  const entity = document.getElementById(html_tag_text_winner)!;
+  entity.setAttribute("style", `visibility: visible`);
+}
+
+// ! HAS SIDE EFFECTS
+function resetWinText(): void {
+  // FIRST RESET BOTH
+  const entity_win = document.getElementById("end_win")!;
+  entity_win.setAttribute("style", `visibility: hidden`);
+  const entity_lose = document.getElementById("end_lose")!;
+  entity_lose.setAttribute("style", `visibility: hidden`);
+}
+
+// displayMenu(
+//   MenuType.EndMenu,
+//   state.meta_state.is_paused &&
+//     (state.ai_score >= 7 || state.player_score >= 7)
+// );
+
+//makes game slightly fast
+//   if (!state.meta_state.is_paused) {
+//     const pos_size_getter = get_position_size(state);
+//     // TODO CONVERT NORMAL FUNCTION TO UNARY
+//     rendered_entities.map(update_entity(pos_size_getter));
+
+//     // ONLY TWO ENTITIES THUS NOT WORTH MAKING LIST
+//     const score_getter = get_side_score(state);
+//     update_score_GUI(score_getter)(Player_type.CONTROLLED_PLAYER);
+//     update_score_GUI(score_getter)(Player_type.AI);
+//   } else if (!state.meta_state.has_started) {
+//     reset_score();
+//   }
+// }
+
 // ! HAS SIDE EFFECTS
 function updateView(state: State): void {
+  // TODO turn these three into one function
   displayMenu(
     MenuType.PauseMenu,
     state.meta_state.is_paused &&
@@ -644,6 +866,11 @@ function updateView(state: State): void {
     const score_getter = get_side_score(state);
     update_score_GUI(score_getter)(Player_type.CONTROLLED_PLAYER);
     update_score_GUI(score_getter)(Player_type.AI);
+  } else if (!state.meta_state.has_started) {
+    resetWinText();
+    reset_score();
+  } else if (state.meta_state.has_ended) {
+    updateWinText(state.player_score < state.ai_score);
   }
 }
 

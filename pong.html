@@ -12,13 +12,44 @@
     <script src="./dist/pong.js"></script>
   </head>
   <body>
-    <h1>Pong 🏓</h1>
+    <!-- <h1>Pong 🏓</h1> -->
     <svg
       id="svgCanvas"
       width="600"
       height="600"
       style="background-color: black"
     >
+      <path
+        fill="none"
+        stroke="white"
+        stroke-width="4"
+        stroke-dasharray="14,10"
+        d="M297 5 l0 600"
+      />
+
+      <g transform="scale(0.5)" stroke-opacity="1.0">
+        <ellipse
+          ry="36.07878"
+          rx="35.22203"
+          id="svg_18"
+          cy="300"
+          cx="400"
+          fill-opacity="null"
+          stroke-opacity="null"
+          stroke-width="2.5"
+          stroke="#fff"
+          fill="null"
+        />
+        <path
+          d="m402.12381,326.81653l-8.98905,0l0,-8.73933l8.98905,0l0,8.73933zm0,-18.07074l0,2.88828l-8.98905,0l0,-3.55874c0,-10.73889 12.0545,-12.44305 12.0545,-20.07556c0,-3.48027 -3.06934,-6.14625 -7.08757,-6.14625c-4.16385,0 -7.8159,3.11039 -7.8159,3.11039l-5.11772,-6.44701c0,0 5.04428,-5.33344 13.738,-5.33344c8.25817,0 15.92585,5.18451 15.92585,13.92512c0.00385,12.2274 -12.70813,13.63751 -12.70813,21.63721l0,0z"
+          fill-opacity="null"
+          stroke-opacity="null"
+          stroke-width="3"
+          stroke="#fff"
+          fill="null"
+        />
+      </g>
+
       <g id="player_paddle" transform="translate(565,100)">
         <rect
           class="player_paddle"
@@ -30,7 +61,11 @@
         <path fill="none" stroke="black" stroke-width="1" d="M-3.5 0 l0 80" /> -->
       </g>
       <g id="ball" transform="translate(200,200)">
-        <rect class="ball" width="15" height="15" style="fill: white"></rect>
+        <rect class="ball" width="14" height="14" style="fill: white"></rect>
+      </g>
+
+      <g id="ai_heuristic_ball" transform="translate(200,200)">
+        <rect class="ball" width="14" height="14" style="fill: none"></rect>
       </g>
 
       <g id="cpu_paddle" transform="translate(25,100)">
@@ -44,14 +79,63 @@
         <path fill="none" stroke="white" stroke-width="1" d="M18.5 0 l0 80" /> -->
       </g>
 
-      <g id="player_ui" transform="translate(385,43)">
-        <circle cx="0" cy="0" r="5" stroke="white" stroke-width="1.5" />
-        <circle cx="0" cy="14" r="5" stroke="white" stroke-width="1.5" />
-        <circle cx="16" cy="0" r="5" stroke="white" stroke-width="1.5" />
-        <circle cx="16" cy="14" r="5" stroke="white" stroke-width="1.5" />
-        <circle cx="32" cy="0" r="5" stroke="white" stroke-width="1.5" />
-        <circle cx="32" cy="14" r="5" stroke="white" stroke-width="1.5" />
-        <circle cx="46" cy="7" r="5" stroke="white" stroke-width="1.5" />
+      <g class="player_ui" transform="translate(385,43)">
+        <circle
+          id="player_ui_score_1"
+          cx="0"
+          cy="0"
+          r="5"
+          stroke="white"
+          stroke-width="1.5"
+        />
+        <circle
+          id="player_ui_score_2"
+          cx="0"
+          cy="14"
+          r="5"
+          stroke="white"
+          stroke-width="1.5"
+        />
+        <circle
+          id="player_ui_score_3"
+          cx="16"
+          cy="0"
+          r="5"
+          stroke="white"
+          stroke-width="1.5"
+        />
+        <circle
+          id="player_ui_score_4"
+          cx="16"
+          cy="14"
+          r="5"
+          stroke="white"
+          stroke-width="1.5"
+        />
+        <circle
+          id="player_ui_score_5"
+          cx="32"
+          cy="0"
+          r="5"
+          stroke="white"
+          stroke-width="1.5"
+        />
+        <circle
+          id="player_ui_score_6"
+          cx="32"
+          cy="14"
+          r="5"
+          stroke="white"
+          stroke-width="1.5"
+        />
+        <circle
+          id="player_ui_score_7"
+          cx="46"
+          cy="7"
+          r="5"
+          stroke="white"
+          stroke-width="1.5"
+        />
         <rect
           class="player_paddle"
           width="40"
@@ -60,16 +144,73 @@
           x="-58"
           y="-11"
         />
+        <line
+          x1="-53"
+          y1="22"
+          x2="-22"
+          y2="22"
+          id="power_select"
+          style="stroke: white; stroke-width: 1.5"
+        />
       </g>
 
       <g id="ai_ui" transform="translate(178,43)">
-        <circle cx="-14" cy="7" r="5" stroke="white" stroke-width="1.5" />
-        <circle cx="0" cy="0" r="5" stroke="white" stroke-width="1.5" />
-        <circle cx="0" cy="14" r="5" stroke="white" stroke-width="1.5" />
-        <circle cx="16" cy="0" r="5" stroke="white" stroke-width="1.5" />
-        <circle cx="16" cy="14" r="5" stroke="white" stroke-width="1.5" />
-        <circle cx="32" cy="0" r="5" stroke="white" stroke-width="1.5" />
-        <circle cx="32" cy="14" r="5" stroke="white" stroke-width="1.5" />
+        <circle
+          id="ai_ui_score_7"
+          cx="-14"
+          cy="7"
+          r="5"
+          stroke="white"
+          stroke-width="1.5"
+        />
+        <circle
+          id="ai_ui_score_5"
+          cx="0"
+          cy="0"
+          r="5"
+          stroke="white"
+          stroke-width="1.5"
+        />
+        <circle
+          id="ai_ui_score_6"
+          cx="0"
+          cy="14"
+          r="5"
+          stroke="white"
+          stroke-width="1.5"
+        />
+        <circle
+          id="ai_ui_score_3"
+          cx="16"
+          cy="0"
+          r="5"
+          stroke="white"
+          stroke-width="1.5"
+        />
+        <circle
+          id="ai_ui_score_4"
+          cx="16"
+          cy="14"
+          r="5"
+          stroke="white"
+          stroke-width="1.5"
+        />
+        <circle
+          id="ai_ui_score_1"
+          cx="32"
+          cy="0"
+          r="5"
+          stroke="white"
+          stroke-width="1.5"
+        />
+        <circle
+          id="ai_ui_score_2"
+          cx="32"
+          cy="14"
+          r="5"
+          stroke="white"
+          stroke-width="1.5"
+        />
         <rect
           class="player_paddle"
           width="40"
@@ -80,13 +221,241 @@
         />
       </g>
 
-      <path
-        fill="none"
-        stroke="white"
-        stroke-width="4"
-        stroke-dasharray="14,10"
-        d="M297 5 l0 600"
-      />
+      <g id="startMenu" style="visibility: hidden">
+        <text
+          style="cursor: move"
+          transform="matrix(1.19577, 0, 0, 1.20445, -14.5734, -24.4066)"
+          xml:space="preserve"
+          text-anchor="start"
+          font-family="'Trebuchet MS', Gadget, sans-serif"
+          font-size="65"
+          y="219.20721"
+          x="-110.105"
+          stroke-width="4"
+          stroke="#ffffff"
+          fill="#ffffff"
+        >
+          DIFFICULTY
+        </text>
+        <rect
+          id="svg_2"
+          height="64.04893"
+          width="272"
+          y="267.97554"
+          x="164"
+          stroke-width="1.5"
+          stroke="#000"
+          fill="#fff"
+        />
+        <text
+          transform="matrix(1.19577, 0, 0, 1.20445, -14.5734, -24.4066)"
+          xml:space="preserve"
+          text-anchor="start"
+          font-family="'Trebuchet MS', Gadget, sans-serif"
+          font-size="29"
+          id="svg_6"
+          y="279.81561"
+          x="135.06363"
+          stroke-width="2"
+          stroke="#000"
+          fill="#000000"
+        >
+          EASY
+        </text>
+        <rect
+          id="svg_7"
+          height="64.04893"
+          width="272"
+          y="350.97556"
+          x="164"
+          stroke-width="1.5"
+          stroke="#000"
+          fill="#fff"
+        />
+        <text
+          transform="matrix(1.19577, 0, 0, 1.20445, -14.5734, -24.4066)"
+          xml:space="preserve"
+          text-anchor="start"
+          font-family="'Trebuchet MS', Gadget, sans-serif"
+          font-size="29"
+          id="svg_8"
+          y="349.49704"
+          x="116.70137"
+          stroke-width="2"
+          stroke="#000"
+          fill="#000000"
+        >
+          MEDIUM
+        </text>
+        <rect
+          id="svg_7"
+          height="64.04893"
+          width="272"
+          y="433.97556"
+          x="164"
+          stroke-width="1.5"
+          stroke="#000"
+          fill="#fff"
+        />
+        <text
+          transform="matrix(1.19577, 0, 0, 1.20445, -14.5734, -24.4066)"
+          xml:space="preserve"
+          text-anchor="start"
+          font-family="'Trebuchet MS', Gadget, sans-serif"
+          font-size="29"
+          id="svg_8"
+          y="417.49704"
+          x="130.70137"
+          stroke-width="2"
+          stroke="#000"
+          fill="#000000"
+        >
+          HARD
+        </text>
+      </g>
+
+      <g id="pauseMenu" style="visibility: hidden">
+        <text
+          style="cursor: move"
+          transform="matrix(1.19577, 0, 0, 1.20445, -14.5734, -24.4066)"
+          xml:space="preserve"
+          text-anchor="start"
+          font-family="'Trebuchet MS', Gadget, sans-serif"
+          font-size="76"
+          y="219.20721"
+          x="-110.105"
+          stroke-width="7"
+          stroke="#ffffff"
+          fill="#ffffff"
+        >
+          PAUSED
+        </text>
+        <rect
+          id="svg_2"
+          height="64.04893"
+          width="272"
+          y="267.97554"
+          x="164"
+          stroke-width="1.5"
+          stroke="#000"
+          fill="#fff"
+        />
+        <text
+          transform="matrix(1.19577, 0, 0, 1.20445, -14.5734, -24.4066)"
+          xml:space="preserve"
+          text-anchor="start"
+          font-family="'Trebuchet MS', Gadget, sans-serif"
+          font-size="29"
+          id="svg_6"
+          y="279.81561"
+          x="105.06363"
+          stroke-width="2"
+          stroke="#000"
+          fill="#000000"
+        >
+          Continue
+        </text>
+        <rect
+          id="svg_7"
+          height="64.04893"
+          width="272"
+          y="350.97556"
+          x="164"
+          stroke-width="1.5"
+          stroke="#000"
+          fill="#fff"
+        />
+        <text
+          transform="matrix(1.19577, 0, 0, 1.20445, -14.5734, -24.4066)"
+          xml:space="preserve"
+          text-anchor="start"
+          font-family="'Trebuchet MS', Gadget, sans-serif"
+          font-size="29"
+          id="svg_8"
+          y="349.49704"
+          x="116.70137"
+          stroke-width="2"
+          stroke="#000"
+          fill="#000000"
+        >
+          Restart
+        </text>
+      </g>
+
+      <g id="EndGameMenu" style="visibility: hidden">
+        <text
+          transform="matrix(1.19577, 0, 0, 1.20445, -14.5734, -24.4066)"
+          xml:space="preserve"
+          text-anchor="start"
+          font-family="'Trebuchet MS', Gadget, sans-serif"
+          font-size="65"
+          y="161.20721"
+          x="-14.105"
+          stroke-width="4"
+          stroke="#ffffff"
+          fill="#ffffff"
+        >
+          YOU
+        </text>
+        <text
+          id="end_lose"
+          style="visibility: hidden"
+          transform="matrix(1.19577, 0, 0, 1.20445, -14.5734, -24.4066)"
+          xml:space="preserve"
+          text-anchor="start"
+          font-family="'Trebuchet MS', Gadget, sans-serif"
+          font-size="65"
+          y="219.20721"
+          x="-20.105"
+          stroke-width="4"
+          stroke="#ffffff"
+          fill="#ffffff"
+        >
+          LOSE
+        </text>
+        <text
+          id="end_win"
+          style="visibility: hidden"
+          transform="matrix(1.19577, 0, 0, 1.20445, -14.5734, -24.4066)"
+          xml:space="preserve"
+          text-anchor="start"
+          font-family="'Trebuchet MS', Gadget, sans-serif"
+          font-size="65"
+          y="219.20721"
+          x="-10.105"
+          stroke-width="4"
+          stroke="#ffffff"
+          fill="#ffffff"
+        >
+          WIN
+        </text>
+        <rect
+          style="cursor: default"
+          height="64.04893"
+          width="272"
+          y="267.97554"
+          x="164"
+          stroke-width="1.5"
+          stroke="#000"
+          fill="#fff"
+        />
+        <text
+          transform="matrix(1.19577, 0, 0, 1.20445, -14.5734, -24.4066)"
+          xml:space="preserve"
+          style="cursor: default"
+          text-anchor="start"
+          font-family="'Trebuchet MS', Gadget, sans-serif"
+          font-size="29"
+          id="svg_6"
+          y="279.81561"
+          x="116.70137"
+          stroke-width="2"
+          stroke="#000"
+          fill="#000000"
+        >
+          Restart
+        </text>
+      </g>
     </svg>
   </body>
 </html>
