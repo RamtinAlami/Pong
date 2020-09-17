@@ -11,6 +11,7 @@ import {
   takeUntil,
 } from "rxjs/operators";
 
+// THIS SECTION WILL BE USED FOR DECLARING TYPES AND CLASSES
 type Paddle_state = Readonly<{
   y: number;
   x: number;
@@ -49,6 +50,7 @@ type power_up_ball_state = Readonly<{
   x: number;
   velocity: Vector;
   is_active: boolean;
+  ms_left_visible: number;
 }>;
 
 type Meta_State = Readonly<{
@@ -75,6 +77,11 @@ class Vector {
   public readonly dx: number;
   public readonly dy: number;
 
+  /**
+   * The constructor for the vector class
+   * @param {number} magnitude The magnitude of the vector
+   * @param {number} angle The angle in radians
+   */
   constructor(
     public readonly magnitude: number = 0,
     public readonly angle: number = 0
@@ -94,6 +101,7 @@ class Vector {
   };
 }
 
+// THIS SECTION WILL BE THE INITIATION OF THE STATE
 const initial_player_paddle_state: Paddle_state = {
   x: 565,
   y: 100,
@@ -110,6 +118,12 @@ const initial_ai_paddle_state: Paddle_state = {
   direction: 0,
 };
 
+const initial_ai_state: ai_state = {
+  paddle: initial_ai_paddle_state,
+  y_target: 300,
+  heuristic_ball: null,
+};
+
 const initial_ball_State: ball_state = {
   x: 200,
   y: 198,
@@ -117,12 +131,6 @@ const initial_ball_State: ball_state = {
   speedY: 3,
   size: 1,
   velocity: new Vector(3.5, 1),
-};
-
-const initial_ai_state: ai_state = {
-  paddle: initial_ai_paddle_state,
-  y_target: 300,
-  heuristic_ball: null,
 };
 
 const initial_meta_state: Meta_State = {
@@ -136,10 +144,11 @@ const initial_meta_state: Meta_State = {
 };
 
 const initial_pb_state: power_up_ball_state = {
-  y: 200,
-  x: 100,
-  velocity: new Vector(1, 1),
-  is_active: false,
+  y: 300,
+  x: 300,
+  velocity: new Vector(0.4, 1),
+  is_active: true,
+  ms_left_visible: 0,
 };
 
 const initialState: State = {
@@ -152,35 +161,8 @@ const initialState: State = {
   power_up_ball: initial_pb_state,
 };
 
-// NEED TO COMBINED TWO INTO ONE AND USE TYPE
-const get_pad_range: (s: State) => { min: Number; max: Number } = (
-  s: State
-) => {
-  return {
-    max:
-      s.player_paddle.y +
-      s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE,
-
-    min: s.player_paddle.y,
-  };
-};
-
-const has_scored: (s: State) => boolean = (s: State) => s.ball.x >= 564;
-
-const get_pad_rang_aie: (s: State) => { min: Number; max: Number } = (
-  s: State
-) => {
-  return {
-    max:
-      s.ai_paddle.paddle.y +
-      s.ai_paddle.paddle.size * game_constants.STARTING_PADDLE_SIZE,
-
-    min: s.ai_paddle.paddle.y,
-  };
-};
-
-// const game_constants = { MAX_X: 600, MAX_Y: 600, STARTING_PADDLE_SIZE: 80 };
-
+// Game constants
+// Encouraged to use to avoid the requirement to change many location if some aspect changes
 const enum game_constants {
   MAX_X = 600,
   MAX_Y = 600,
@@ -189,18 +171,7 @@ const enum game_constants {
   MAX_SCORE = 7,
 }
 
-const get_new_player_y: (direction: number) => (s: State) => number = (
-  direction: number
-) => (s: State) => {
-  return s.player_paddle.y + direction < 0
-    ? 0 // if the paddle goes above 0, then we set to 0 so the paddle does not go outside view
-    : s.player_paddle.y + direction >
-      game_constants.MAX_Y -
-        s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE
-    ? game_constants.MAX_Y -
-      s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE // If paddle goes bellow the MAX_Y, we set to MAX_Y + paddle size, so it doesn't go outside view
-    : s.player_paddle.y + direction * s.player_paddle.speed; // If paddle is middle of the view, then simply move the y value
-};
+// The following class are the event classes that will be constructed observables
 class Tick {
   constructor(public readonly elapsed: number) {}
 }
@@ -208,53 +179,19 @@ class move_player_paddle {
   constructor(public readonly direction: number) {}
 }
 
+class use_power_up {
+  constructor(public readonly activated: boolean) {}
+}
+
 class mouse_click {
   constructor(public readonly x: number, public readonly y: number) {}
 }
 
-// ! DID THIS FOR CONSISTENCY BUT NOT REALLY REQUIRED SINCE NO STORED
 class pause {
   constructor() {}
 }
 
-// LCG using GCC's constants
-// ! BASED ON WEEK 5 OBSERVABLES.TS
-const psudo_randm: (seed: number) => number = (seed: number) => {
-  return ((1103515245 * seed + 12345) % 0x80000000) / (0x80000000 - 1);
-};
-
-// ! returns 1 or 2 or 3 for buttons, and returns 0 for others
-function button_click_check(x: number, y: number): number {
-  if (x > 173 && x < 443) {
-    if (y > 278 && y < 342) {
-      return 1;
-    } else if (y > 362 && y < 432) {
-      return 2;
-    } else if (y > 442 && y < 505) {
-      return 3;
-    }
-  }
-  return 0;
-}
-
-// sets seed to mouse x ** y position
-// to be used at the start
-function set_seed(s: State, x: number, y: number): State {
-  return { ...s, meta_state: { ...s.meta_state, rand_seed: x ** y } };
-}
-
-// Standard Normal variate using Box-Muller transform.
-function randn_bm(seed: number, variance: number, mean: number): number {
-  const u = psudo_randm(seed);
-  const v = psudo_randm(seed + 1);
-  // standard normal dist
-  const Z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
-
-  // convert standard normal to our case
-  const X = variance * Z + mean;
-  return X;
-}
-
+//
 type Event = "keydown" | "keyup";
 type Key = "ArrowUp" | "ArrowDown" | "Space" | "Escape";
 const observeKey = <T>(eventName: string, k: Key, result: () => T) =>
@@ -290,19 +227,108 @@ const StopDownMove = observeKey(
   () => new move_player_paddle(0)
 );
 
+const StartPowerUpUse = observeKey(
+  "keydown",
+  "Space",
+  () => new use_power_up(true)
+);
+const EndPowerUpUse = observeKey(
+  "keyup",
+  "Space",
+  () => new use_power_up(false)
+);
+
 const PauseGame = observeKey("keydown", "Escape", () => new pause());
 
 const mouseObs = observeMouse((x, y) => new mouse_click(x, y));
+
+// NEED TO COMBINED TWO INTO ONE AND USE TYPE
+const get_pad_range: (s: State) => { min: Number; max: Number } = (
+  s: State
+) => {
+  return {
+    max:
+      s.player_paddle.y +
+      s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE,
+
+    min: s.player_paddle.y,
+  };
+};
+
+const has_scored: (s: State) => boolean = (s: State) => s.ball.x >= 564;
+
+const get_pad_rang_aie: (s: State) => { min: Number; max: Number } = (
+  s: State
+) => {
+  return {
+    max:
+      s.ai_paddle.paddle.y +
+      s.ai_paddle.paddle.size * game_constants.STARTING_PADDLE_SIZE,
+
+    min: s.ai_paddle.paddle.y,
+  };
+};
+
+const get_new_player_y: (direction: number) => (s: State) => number = (
+  direction: number
+) => (s: State) => {
+  return s.player_paddle.y + direction < 0
+    ? 0 // if the paddle goes above 0, then we set to 0 so the paddle does not go outside view
+    : s.player_paddle.y + direction >
+      game_constants.MAX_Y -
+        s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE
+    ? game_constants.MAX_Y -
+      s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE // If paddle goes bellow the MAX_Y, we set to MAX_Y + paddle size, so it doesn't go outside view
+    : s.player_paddle.y + direction * s.player_paddle.speed; // If paddle is middle of the view, then simply move the y value
+};
+
+// LCG using GCC's constants
+// ! BASED ON WEEK 5 OBSERVABLES.TS
+const psudo_randm: (seed: number) => number = (seed: number) => {
+  return ((1103515245 * seed + 12345) % 0x80000000) / (0x80000000 - 1);
+};
+
+// ! returns 1 or 2 or 3 for buttons, and returns 0 for others
+function button_click_check(x: number, y: number): number {
+  if (x > 173 && x < 443) {
+    if (y > 278 && y < 342) {
+      return 1;
+    } else if (y > 362 && y < 432) {
+      return 2;
+    } else if (y > 442 && y < 505) {
+      return 3;
+    }
+  }
+  return 0;
+}
+
+// sets seed to mouse x ** y position
+// to be used at the start
+function set_seed(s: State, x: number, y: number): State {
+  return { ...s, meta_state: { ...s.meta_state, rand_seed: x + y } };
+}
+
+// Standard Normal variate using Box-Muller transform.
+function randn_bm(seed: number, variance: number, mean: number): number {
+  const u = psudo_randm(seed);
+  const v = psudo_randm(seed + 1); // need to change the seed
+  // standard normal dist
+  const Z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+
+  // convert standard normal to our case
+  const X = variance * Z + mean;
+  return X;
+}
 
 const prediction_deviation: (s: State) => number = (s: State) => {
   const player_help = 0.5 * (1 / (1 + Math.exp(s.ai_score - 4))) + 0.05; // as the player scores they get less help
   const ai_help = 0.35 * (1 / (1 + Math.exp(-s.player_score + 4))); // as the player scores they get less help
   const variance = (player_help + ai_help) * (90 / s.meta_state.difficulty); // 1, 2 or 3
-  const generated_number = randn_bm(10, variance, 0);
+  const generated_number = randn_bm(s.meta_state.rand_seed, variance, 0);
   return generated_number;
 };
 
-type EventType = move_player_paddle | Tick | pause | mouse_click;
+type EventType = move_player_paddle | Tick | pause | mouse_click | use_power_up;
 
 // used for keyboard to update
 function move_player_paddle_func(s: State, e: EventType): State {
@@ -396,10 +422,22 @@ function mouse_click_func(s: State, e: EventType): State {
     return game_start_menu(s, e.x, e.y);
   } else if (s.meta_state.has_ended) {
     return end_menu(s, e.x, e.y);
-  } else {
+  } else if (s.meta_state.is_paused) {
     return pause_menu(s, e.x, e.y);
   }
   return s;
+}
+
+function activate_power_ball(s: State, e: EventType): State {
+  if (!(e instanceof use_power_up)) throw "wrong";
+
+  return {
+    ...s,
+    meta_state: {
+      ...s.meta_state,
+      show_active_line: e.activated,
+    },
+  };
 }
 
 const move_player_tick_function: (s: State) => State = (s: State) => {
@@ -456,7 +494,7 @@ function find_ai_target_tick_function(s: State): State {
             ? s.ai_paddle.heuristic_ball.y - 40 + prediction_deviation(s)
             : s.ai_paddle.y_target
           : s.ball.x < 40
-          ? randn_bm(200, 250, 300)
+          ? randn_bm(s.meta_state.rand_seed + 3, 250, 300)
           : s.ai_paddle.y_target,
     },
   };
@@ -500,13 +538,34 @@ function move_ball_tick_function(s: State): State {
     ...s,
     ball:
       s.ball.x > 562 || s.ball.x < 34
-        ? initial_ball_State
+        ? {
+            ...s.ball,
+            x: randn_bm(s.meta_state.rand_seed + 10, 50, 100),
+            y: randn_bm(s.meta_state.rand_seed + 11, 50, 100),
+            velocity: new Vector(
+              initial_ball_State.velocity.magnitude,
+              psudo_randm(s.meta_state.rand_seed + 13)
+            ),
+          }
         : {
             ...s.ball,
             x: s.ball.x + get_new_ball_velocity(s).dx,
             y: s.ball.y + get_new_ball_velocity(s).dy,
             velocity: get_new_ball_velocity(s),
           },
+  };
+}
+
+function move_power_ball_tick_function(s: State): State {
+  // const new_player_y: number = get_new_player_y(s.player_paddle.direction)(s);
+  return {
+    ...s,
+    power_up_ball: {
+      ...s.power_up_ball,
+      x: s.power_up_ball.x + get_new_power_ball_velocity(s).dx,
+      y: s.power_up_ball.y + get_new_power_ball_velocity(s).dy,
+      velocity: get_new_power_ball_velocity(s),
+    },
   };
 }
 
@@ -521,12 +580,11 @@ function update_score_tick_function(s: State): State {
 
 // TODO SET THE 1000 to a constant that is max_rand_num_get
 function update_seed_tick_function(s: State): State {
-  // const new_player_y: number = get_new_player_y(s.player_paddle.direction)(s);
   return {
     ...s,
     meta_state: {
       ...s.meta_state,
-      rand_seed: s.meta_state.rand_seed + 1000,
+      rand_seed: (s.meta_state.rand_seed + 97) % 100000000000,
     },
   };
 }
@@ -551,9 +609,9 @@ function Tick_func(s: State, e: EventType): State {
     find_ai_target_tick_function,
     move_heuristic_ball_tick_function,
     move_ball_tick_function,
+    move_power_ball_tick_function,
     update_score_tick_function,
     update_seed_tick_function,
-    check_end_game_tick_function,
     check_end_game_tick_function,
   ];
 
@@ -566,13 +624,13 @@ function Tick_func(s: State, e: EventType): State {
 }
 
 // TODO FIX THIS TO OLD IF STATEMENT VERSION
-const reduceState = (
-  s: State,
-  e: move_player_paddle | Tick | pause | mouse_click
-): State => {
+const reduceState = (s: State, e: EventType): State => {
   switch (e.constructor) {
     case mouse_click:
       return mouse_click_func(s, e);
+      break;
+    case use_power_up:
+      return activate_power_ball(s, e);
       break;
     case move_player_paddle:
       return move_player_paddle_func(s, e);
@@ -614,6 +672,14 @@ function collision_with_paddle_nai(s: State): boolean {
   } else {
     return false;
   }
+}
+
+function get_new_power_ball_velocity(s: State): Vector {
+  return s.power_up_ball.x <= 100 || s.power_up_ball.x >= 400
+    ? s.power_up_ball.velocity.x_reflect()
+    : s.power_up_ball.y <= 100 || s.ball.y >= 400
+    ? s.power_up_ball.velocity.y_reflect()
+    : s.power_up_ball.velocity;
 }
 
 // SET THIS UP INTO ONE
@@ -814,26 +880,35 @@ function resetWinText(): void {
   entity_lose.setAttribute("style", `visibility: hidden`);
 }
 
-// displayMenu(
-//   MenuType.EndMenu,
-//   state.meta_state.is_paused &&
-//     (state.ai_score >= 7 || state.player_score >= 7)
-// );
+// ! HAS SIDE EFFECTS
+function power_ball_move(s: State): void {
+  // FIRST RESET BOTH
+  const entity_pb = document.getElementById("power_box")!;
+  if (s.power_up_ball.is_active) {
+    entity_pb.setAttribute("style", `visibility: visible`);
+    entity_pb.setAttribute(
+      "transform",
+      `translate(${s.power_up_ball.x}, ${s.power_up_ball.y})`
+    );
+  } else {
+    entity_pb.setAttribute("style", `visibility: hidden`);
+  }
+}
 
-//makes game slightly fast
-//   if (!state.meta_state.is_paused) {
-//     const pos_size_getter = get_position_size(state);
-//     // TODO CONVERT NORMAL FUNCTION TO UNARY
-//     rendered_entities.map(update_entity(pos_size_getter));
-
-//     // ONLY TWO ENTITIES THUS NOT WORTH MAKING LIST
-//     const score_getter = get_side_score(state);
-//     update_score_GUI(score_getter)(Player_type.CONTROLLED_PLAYER);
-//     update_score_GUI(score_getter)(Player_type.AI);
-//   } else if (!state.meta_state.has_started) {
-//     reset_score();
-//   }
-// }
+// ! HAS SIDE EFFECTS
+let test = false;
+function show_power_up_line(s: State): void {
+  // FIRST RESET BOTH
+  const entity_pb = document.getElementById("power_select")!;
+  if (s.meta_state.show_active_line && !test) {
+    console.log("dlksajnda");
+    test = true;
+    entity_pb.setAttribute("style", `visibility: visible`);
+  } else {
+    test = false;
+    entity_pb.setAttribute("style", `visibility: hidden`);
+  }
+}
 
 // ! HAS SIDE EFFECTS
 function updateView(state: State): void {
@@ -861,6 +936,8 @@ function updateView(state: State): void {
     const pos_size_getter = get_position_size(state);
     // TODO CONVERT NORMAL FUNCTION TO UNARY
     rendered_entities.map(update_entity(pos_size_getter));
+    power_ball_move(state);
+    show_power_up_line(state);
 
     // ONLY TWO ENTITIES THUS NOT WORTH MAKING LIST
     const score_getter = get_side_score(state);
@@ -894,7 +971,9 @@ function pong() {
         StopUpMove,
         StopDownMove,
         PauseGame,
-        mouseObs
+        mouseObs,
+        StartPowerUpUse,
+        EndPowerUpUse
       ),
       scan(reduceState, initialState)
     )
