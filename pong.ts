@@ -51,6 +51,7 @@ type power_up_ball_state = Readonly<{
   velocity: Vector;
   is_active: boolean;
   ms_left_visible: number;
+  size: number;
 }>;
 
 type Meta_State = Readonly<{
@@ -68,6 +69,7 @@ type State = Readonly<{
   ai_paddle: ai_state;
   ball: ball_state;
   power_up_ball: power_up_ball_state;
+
   player_score: number;
   ai_score: number;
   meta_state: Meta_State;
@@ -79,8 +81,8 @@ class Vector {
 
   /**
    * The constructor for the vector class
-   * @param {number} magnitude The magnitude of the vector
-   * @param {number} angle The angle in radians
+   * @param magnitude The magnitude of the vector
+   * @param angle The angle in radians
    */
   constructor(
     public readonly magnitude: number = 0,
@@ -91,9 +93,20 @@ class Vector {
   }
 
   scale = (scale: number) => new Vector(this.magnitude * scale, this.angle);
+
+  // This will reflect the vector along the x axis
   x_reflect = () => new Vector(-this.magnitude, -this.angle);
+
+  // This will reflect the vector along the y axis
   y_reflect = () => new Vector(this.magnitude, -this.angle);
-  y_reflect_paddle = (strength: number) => {
+
+  /**
+   * This is similar to x_reflect; however, it will be used for paddles to change
+   * the magnitude and angle based on "strength" which determined by which part of the paddle
+   * collides with the ball
+   * @param strength This is the amount the vector will changed after reflection
+   */
+  x_reflect_paddle = (strength: number) => {
     const new_mag = this.magnitude * strength;
     // Only change the angle if strength a lot more
     const new_angle = -(this.angle + (strength > 1 ? strength : 0));
@@ -148,6 +161,7 @@ const initial_pb_state: power_up_ball_state = {
   x: 300,
   velocity: new Vector(0.4, 1),
   is_active: true,
+  size: 1,
   ms_left_visible: 0,
 };
 
@@ -171,7 +185,16 @@ const enum game_constants {
   MAX_SCORE = 7,
 }
 
-// The following class are the event classes that will be constructed observables
+// The following enum is to be used for functions that require identification of side
+// enums are used to establish consistency and reduce coding bugs
+const enum Player_type {
+  CONTROLLED_PLAYER,
+  AI,
+}
+
+// The following class are the event classes that will be constructed by keyboard down
+// Classes are created because they store a value
+// TODO complete this ^
 class Tick {
   constructor(public readonly elapsed: number) {}
 }
@@ -183,43 +206,49 @@ class use_power_up {
   constructor(public readonly activated: boolean) {}
 }
 
-class mouse_click {
-  constructor(public readonly x: number, public readonly y: number) {}
-}
-
+// pause did not require to be a class; however, for consistency was created as a class
 class pause {
   constructor() {}
 }
 
-//
+// The following class is constructed by mouse click
+class mouse_click {
+  constructor(public readonly x: number, public readonly y: number) {}
+}
+
 type Event = "keydown" | "keyup";
 type Key = "ArrowUp" | "ArrowDown" | "Space" | "Escape";
-const observeKey = <T>(eventName: string, k: Key, result: () => T) =>
+/**
+ * Following ObserveKey function will be used to get the user keyboard input
+ * This function is based on the code by Tim Dwyer at https://tgdwyer.github.io/asteroids/
+ * @param eventName The even that will invoke the function
+ * @param k The key that will watched for the event
+ * @param result The function that will be evoked upon event on key occurring
+ */
+const observeKey = <T>(eventName: Event, k: Key, result: () => T) =>
   fromEvent<KeyboardEvent>(document, eventName).pipe(
     filter(({ code }) => code === k),
     filter(({ repeat }) => !repeat),
     map(result)
   );
 
-const observeMouse = <T>(result: (clientX: number, clientY: number) => T) =>
-  fromEvent<MouseEvent>(document, "mousedown").pipe(
-    map(({ clientX, clientY }) => result(clientX, clientY))
-  );
-
+// Up Arrow key for moving up
 const startUpMove = observeKey(
   "keydown",
   "ArrowUp",
   () => new move_player_paddle(-1)
 );
-const StartDownMove = observeKey(
-  "keydown",
-  "ArrowDown",
-  () => new move_player_paddle(1)
-);
 const StopUpMove = observeKey(
   "keyup",
   "ArrowUp",
   () => new move_player_paddle(0)
+);
+
+// Down Arrow key for moving down
+const StartDownMove = observeKey(
+  "keydown",
+  "ArrowDown",
+  () => new move_player_paddle(1)
 );
 const StopDownMove = observeKey(
   "keyup",
@@ -227,6 +256,7 @@ const StopDownMove = observeKey(
   () => new move_player_paddle(0)
 );
 
+// Space button for selecting power up
 const StartPowerUpUse = observeKey(
   "keydown",
   "Space",
@@ -238,36 +268,39 @@ const EndPowerUpUse = observeKey(
   () => new use_power_up(false)
 );
 
+// Esc button for pausing the game
 const PauseGame = observeKey("keydown", "Escape", () => new pause());
+
+/**
+ * Following ObserveKey function will be used to get the user mouse click
+ * The function does is not as flexible as observeKey because only used in the
+ * context of mousedown.
+ *
+ * This function is inspired by the observeKey function by Tim Dwyer
+ * @param result The function that will be evoked upon event on key occurring
+ */
+const observeMouse = <T>(result: (clientX: number, clientY: number) => T) =>
+  fromEvent<MouseEvent>(document, "mousedown").pipe(
+    map(({ clientX, clientY }) => result(clientX, clientY))
+  );
 
 const mouseObs = observeMouse((x, y) => new mouse_click(x, y));
 
 // NEED TO COMBINED TWO INTO ONE AND USE TYPE
-const get_pad_range: (s: State) => { min: Number; max: Number } = (
-  s: State
-) => {
+// TODO does this need type???
+// TODO The function is curried because of setting of functions before condition checking later
+const get_paddle_range = (Paddle_owner: Player_type) => (s: State) => {
+  // is_ai is used because the code will be more readable
+  const is_ai: boolean = Paddle_owner === Player_type.AI;
+  const y: number = is_ai ? s.ai_paddle.paddle.y : s.player_paddle.y;
+  const size: number = is_ai ? s.ai_paddle.paddle.size : s.player_paddle.size;
   return {
-    max:
-      s.player_paddle.y +
-      s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE,
-
-    min: s.player_paddle.y,
+    max: y + size * game_constants.STARTING_PADDLE_SIZE,
+    min: y,
   };
 };
 
 const has_scored: (s: State) => boolean = (s: State) => s.ball.x >= 564;
-
-const get_pad_rang_aie: (s: State) => { min: Number; max: Number } = (
-  s: State
-) => {
-  return {
-    max:
-      s.ai_paddle.paddle.y +
-      s.ai_paddle.paddle.size * game_constants.STARTING_PADDLE_SIZE,
-
-    min: s.ai_paddle.paddle.y,
-  };
-};
 
 const get_new_player_y: (direction: number) => (s: State) => number = (
   direction: number
@@ -288,7 +321,33 @@ const psudo_randm: (seed: number) => number = (seed: number) => {
   return ((1103515245 * seed + 12345) % 0x80000000) / (0x80000000 - 1);
 };
 
-// ! returns 1 or 2 or 3 for buttons, and returns 0 for others
+/**
+ * Generates "almost a" Normally distributed number based on input variance and mean
+ * The function is based on the Box-Muller transform
+ * This function is not perfect as Box-Muller requires two random with the range of (0,1); however provided with [0,1) which would make the output imperfect but still alright for
+ * @param seed The seed that the number will be generated on
+ * @param variance The variance of the generated number
+ * @param mean The mean of the generated number
+ */
+function randn_bm(seed: number, variance: number, mean: number): number {
+  const u = psudo_randm(seed);
+  const v = psudo_randm(seed + 1); // need to change the seed
+
+  // standard normal distributed number generated
+  const Z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+
+  // convert standard normal to desired normal distribution
+  const X = variance * Z + mean;
+  return X;
+}
+
+/**
+ * Function returns a number of the selected button
+ * 0 is default if selected area does not have a button in it
+ * 1, 2 or 3 if one of the selected areas selected
+ * @param x The x position of the mouse cursor
+ * @param y The y position of the mouse cursor
+ */
 function button_click_check(x: number, y: number): number {
   if (x > 173 && x < 443) {
     if (y > 278 && y < 342) {
@@ -302,24 +361,23 @@ function button_click_check(x: number, y: number): number {
   return 0;
 }
 
-// sets seed to mouse x ** y position
-// to be used at the start
+/**
+ * Sets the starting random seed to the mouse x + mouse y
+ * This function is ran at the start to have different seeds for games while keeping the random number generators pure
+ * @param s The input state that will create the new state with update seed
+ * @param x The x position of the mouse cursor
+ * @param y The y position of the mouse cursor
+ */
 function set_seed(s: State, x: number, y: number): State {
   return { ...s, meta_state: { ...s.meta_state, rand_seed: x + y } };
 }
 
-// Standard Normal variate using Box-Muller transform.
-function randn_bm(seed: number, variance: number, mean: number): number {
-  const u = psudo_randm(seed);
-  const v = psudo_randm(seed + 1); // need to change the seed
-  // standard normal dist
-  const Z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
-
-  // convert standard normal to our case
-  const X = variance * Z + mean;
-  return X;
-}
-
+/**
+ * This function returns a amount the AI will make mistake
+ * The output is primarily based on the player score, ai score and game difficulty
+ * The details of equations are explained in the report
+ * @param s The current game state
+ */
 const prediction_deviation: (s: State) => number = (s: State) => {
   const player_help = 0.5 * (1 / (1 + Math.exp(s.ai_score - 4))) + 0.05; // as the player scores they get less help
   const ai_help = 0.35 * (1 / (1 + Math.exp(-s.player_score + 4))); // as the player scores they get less help
@@ -328,11 +386,16 @@ const prediction_deviation: (s: State) => number = (s: State) => {
   return generated_number;
 };
 
+// These event types are used for reduce functions
+// For consistency and reduction of bugs, they're defined here
 type EventType = move_player_paddle | Tick | pause | mouse_click | use_power_up;
 
 // used for keyboard to update
 function move_player_paddle_func(s: State, e: EventType): State {
-  if (!(e instanceof move_player_paddle)) throw "Wrong Type";
+  // The error is to make sure the right event is evoked
+  if (!(e instanceof move_player_paddle)) throw "Wrong Event type";
+
+  // Sets the new player direction
   return {
     ...s,
     player_paddle: {
@@ -514,18 +577,18 @@ function move_heuristic_ball_tick_function(s: State): State {
                 ...s.ai_paddle.heuristic_ball,
                 x:
                   s.ai_paddle.heuristic_ball.x +
-                  get_new_ball_velocity_ai(s).dx * 2,
+                  new_ball_velocity(s, Ball_type.heuristic_ball).dx * 2,
                 y:
                   s.ai_paddle.heuristic_ball.y +
-                  get_new_ball_velocity_ai(s).dy * 2,
-                velocity: get_new_ball_velocity_ai(s),
+                  new_ball_velocity(s, Ball_type.heuristic_ball).dy * 2,
+                velocity: new_ball_velocity(s, Ball_type.heuristic_ball),
               }
-          : collision_with_paddle_nai(s)
+          : ball_collide_with_paddle(Player_type.CONTROLLED_PLAYER, s)
           ? {
               ...s.ball,
-              x: s.ball.x + get_new_ball_velocity(s).dx,
-              y: s.ball.y + get_new_ball_velocity(s).dy,
-              velocity: get_new_ball_velocity(s),
+              x: s.ball.x + new_ball_velocity(s, Ball_type.main_ball).dx,
+              y: s.ball.y + new_ball_velocity(s, Ball_type.main_ball).dy,
+              velocity: new_ball_velocity(s, Ball_type.main_ball),
             }
           : null,
     },
@@ -549,9 +612,9 @@ function move_ball_tick_function(s: State): State {
           }
         : {
             ...s.ball,
-            x: s.ball.x + get_new_ball_velocity(s).dx,
-            y: s.ball.y + get_new_ball_velocity(s).dy,
-            velocity: get_new_ball_velocity(s),
+            x: s.ball.x + new_ball_velocity(s, Ball_type.main_ball).dx,
+            y: s.ball.y + new_ball_velocity(s, Ball_type.main_ball).dy,
+            velocity: new_ball_velocity(s, Ball_type.main_ball),
           },
   };
 }
@@ -618,60 +681,45 @@ function Tick_func(s: State, e: EventType): State {
   // if game is paused, then tick functions is not performed to preserve state
   const new_state = s.meta_state.is_paused
     ? s
-    : tick_functions.reduce((v, f) => f(v), s);
+    : tick_functions.reduce((curr_s, f) => f(curr_s), s);
 
   return new_state;
 }
 
-// TODO FIX THIS TO OLD IF STATEMENT VERSION
 const reduceState = (s: State, e: EventType): State => {
-  switch (e.constructor) {
-    case mouse_click:
-      return mouse_click_func(s, e);
-      break;
-    case use_power_up:
-      return activate_power_ball(s, e);
-      break;
-    case move_player_paddle:
-      return move_player_paddle_func(s, e);
-      break;
-    case pause:
-      return pause_func(s, e);
-      break;
-    case Tick:
-      return Tick_func(s, e);
-      break;
-    default:
-      return s;
-      break;
-  }
+  if (e instanceof mouse_click) return mouse_click_func(s, e);
+  else if (e instanceof use_power_up) return activate_power_ball(s, e);
+  else if (e instanceof move_player_paddle)
+    return move_player_paddle_func(s, e);
+  else if (e instanceof pause) return pause_func(s, e);
+  else if (e instanceof Tick) return Tick_func(s, e);
+  else return s;
 };
 
-// TURN THIS INTO A SMALLER RESULABLES ONE BY COMBINING TWO
-function collision_with_paddle(s: State): boolean {
-  const { min, max } = get_pad_range(s);
+// TURN THIS INTO A SMALLER REUSABLE ONE BY COMBINING TWO
+function ball_collide_with_paddle(
+  Paddle_owner: Player_type,
+  s: State
+): boolean {
+  const { min, max } = get_paddle_range(Paddle_owner)(s);
+  const ball_size = game_constants.STARTING_BALL_SIZE * s.ball.size;
 
-  if (s.ball.x >= 560 && s.ball.y >= min && s.ball.y <= max) {
-    return true;
-  } else if (
-    s.ball.x <= 40 &&
-    s.ball.y >= get_pad_rang_aie(s).min &&
-    s.ball.y <= get_pad_rang_aie(s).max
-  ) {
-    return true;
-  } else {
-    return false;
-  }
+  // TODO change those to constants for checking
+  const x_line_has_passed =
+    Paddle_owner === Player_type.AI ? s.ball.x <= 40 : s.ball.x >= 560;
+
+  // To make sure that even the edge of the ball can make contact, we will add ball size to the range when checking for contact
+  const y_collided = s.ball.y >= min - ball_size && s.ball.y <= max + ball_size;
+
+  return x_line_has_passed && y_collided;
 }
 
-function collision_with_paddle_nai(s: State): boolean {
-  const { min, max } = get_pad_range(s);
-
-  if (s.ball.x >= 560 && s.ball.y >= min && s.ball.y <= max) {
-    return true;
-  } else {
-    return false;
-  }
+// TODO REMOVE
+function collision_with_paddle(s: State): boolean {
+  return (
+    ball_collide_with_paddle(Player_type.AI, s) ||
+    ball_collide_with_paddle(Player_type.CONTROLLED_PLAYER, s)
+  );
 }
 
 function get_new_power_ball_velocity(s: State): Vector {
@@ -682,30 +730,42 @@ function get_new_power_ball_velocity(s: State): Vector {
     : s.power_up_ball.velocity;
 }
 
-// SET THIS UP INTO ONE
-function get_new_ball_velocity(s: State): Vector {
-  return s.ball.x <= 5 || s.ball.x >= 600 || collision_with_paddle(s)
-    ? s.ball.velocity.x_reflect()
-    : s.ball.y <= 5 || s.ball.y >= 600
-    ? s.ball.velocity.y_reflect()
-    : s.ball.velocity;
+const enum Ball_type {
+  main_ball,
+  heuristic_ball,
+  power_ball,
 }
 
-function get_new_ball_velocity_ai(s: State): Vector {
-  return s.ai_paddle.heuristic_ball.x <= 5 ||
-    s.ai_paddle.heuristic_ball.x >= 600 ||
+// TODO FIX THIS FOR THE TYPE OF POWERBALL
+function new_ball_velocity(s: State, ball_type: Ball_type): Vector {
+  // The following two are not required; however, they make the code cleaner and more readable
+  const is_h_ball = ball_type === Ball_type.heuristic_ball;
+  const is_main_ball = ball_type === Ball_type.main_ball;
+
+  const ball_state = is_h_ball
+    ? s.ai_paddle.heuristic_ball
+    : is_main_ball
+    ? s.ball
+    : s.power_up_ball;
+
+  const y_pos = ball_state.y;
+  const x_pos = ball_state.x;
+  const ball_size = ball_state.size * game_constants.STARTING_BALL_SIZE;
+  const velocity = ball_state.velocity;
+
+  if (
+    x_pos <= ball_size ||
+    x_pos >= game_constants.MAX_X - ball_size ||
     collision_with_paddle(s)
-    ? s.ai_paddle.heuristic_ball.velocity.x_reflect()
-    : s.ai_paddle.heuristic_ball.y <= 5 || s.ai_paddle.heuristic_ball.y >= 600
-    ? s.ai_paddle.heuristic_ball.velocity.y_reflect()
-    : s.ai_paddle.heuristic_ball.velocity;
+  )
+    return velocity.x_reflect();
+  else if (y_pos <= ball_size || y_pos >= game_constants.MAX_Y - ball_size)
+    return velocity.y_reflect();
+  else return velocity;
 }
 
-// The following functions have side effects
-const enum Player_type {
-  CONTROLLED_PLAYER,
-  AI,
-}
+// The following functions are in regards to updating the view
+// Most of these functions have side effects because they update the view
 
 // TODO EXPLAIN THIS
 const enum Ent_type {
@@ -901,7 +961,6 @@ function show_power_up_line(s: State): void {
   // FIRST RESET BOTH
   const entity_pb = document.getElementById("power_select")!;
   if (s.meta_state.show_active_line && !test) {
-    console.log("dlksajnda");
     test = true;
     entity_pb.setAttribute("style", `visibility: visible`);
   } else {
