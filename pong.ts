@@ -493,7 +493,6 @@ function mouse_click_func(s: State, e: EventType): State {
 
 function activate_power_ball(s: State, e: EventType): State {
   if (!(e instanceof use_power_up)) throw "wrong";
-
   return {
     ...s,
     meta_state: {
@@ -541,24 +540,34 @@ function move_ai_tick_function(s: State): State {
   };
 }
 
+/**
+ * Given a y value, it will return 0 or max screen size if goes further
+ * @param y The y value that will be bounded to the screen size
+ */
+const in_y_range: (y: number) => number = (y: number) =>
+  Math.max(Math.min(y, 540), 0);
+
+const get_y_target = (s: State) => {
+  // checks if heuristic ball has been created
+  if (s.ai_paddle.heuristic_ball !== null) {
+    return s.ai_paddle.heuristic_ball.x < 40
+      ? s.ai_paddle.heuristic_ball.y - 40 + prediction_deviation(s)
+      : s.ai_paddle.y_target;
+  } else {
+    // moves the paddle up after striking which makes the AI seem more real
+    return s.ball.x < 40
+      ? randn_bm(s.meta_state.rand_seed + 3, 250, 300)
+      : s.ai_paddle.y_target;
+  }
+};
+
 function find_ai_target_tick_function(s: State): State {
-  const new_player_y: number = get_new_player_y(s.player_paddle.direction)(s);
+  const new_player_y: number = in_y_range(get_y_target(s));
   return {
     ...s,
     ai_paddle: {
       ...s.ai_paddle,
-      y_target:
-        s.ai_paddle.y_target > 540
-          ? 539
-          : s.ai_paddle.y_target < 0
-          ? 0
-          : s.ai_paddle.heuristic_ball !== null
-          ? s.ai_paddle.heuristic_ball.x < 40
-            ? s.ai_paddle.heuristic_ball.y - 40 + prediction_deviation(s)
-            : s.ai_paddle.y_target
-          : s.ball.x < 40
-          ? randn_bm(s.meta_state.rand_seed + 3, 250, 300)
-          : s.ai_paddle.y_target,
+      y_target: new_player_y,
     },
   };
 }
@@ -596,27 +605,31 @@ function move_heuristic_ball_tick_function(s: State): State {
 }
 
 function move_ball_tick_function(s: State): State {
-  // const new_player_y: number = get_new_player_y(s.player_paddle.direction)(s);
-  return {
-    ...s,
-    ball:
-      s.ball.x > 562 || s.ball.x < 34
-        ? {
-            ...s.ball,
-            x: randn_bm(s.meta_state.rand_seed + 10, 50, 100),
-            y: randn_bm(s.meta_state.rand_seed + 11, 50, 100),
-            velocity: new Vector(
-              initial_ball_State.velocity.magnitude,
-              psudo_randm(s.meta_state.rand_seed + 13)
-            ),
-          }
-        : {
-            ...s.ball,
-            x: s.ball.x + new_ball_velocity(s, Ball_type.main_ball).dx,
-            y: s.ball.y + new_ball_velocity(s, Ball_type.main_ball).dy,
-            velocity: new_ball_velocity(s, Ball_type.main_ball),
-          },
-  };
+  if ((s.ball.x > 562 || s.ball.x < 34) && !collision_with_paddle(s)) {
+    return {
+      ...s,
+      // generates a new ball at a random location with random angle but init magnitude
+      ball: {
+        ...s.ball,
+        x: randn_bm(s.meta_state.rand_seed + 10, 50, 100),
+        y: randn_bm(s.meta_state.rand_seed + 11, 50, 100),
+        velocity: new Vector(
+          initial_ball_State.velocity.magnitude,
+          psudo_randm(s.meta_state.rand_seed + 13)
+        ),
+      },
+    };
+  } else {
+    return {
+      ...s,
+      ball: {
+        ...s.ball,
+        x: s.ball.x + new_ball_velocity(s, Ball_type.main_ball).dx,
+        y: s.ball.y + new_ball_velocity(s, Ball_type.main_ball).dy,
+        velocity: new_ball_velocity(s, Ball_type.main_ball),
+      },
+    };
+  }
 }
 
 function move_power_ball_tick_function(s: State): State {
@@ -940,7 +953,7 @@ function resetWinText(): void {
   entity_lose.setAttribute("style", `visibility: hidden`);
 }
 
-// ! HAS SIDE EFFECTS
+// // ! HAS SIDE EFFECTS
 function power_ball_move(s: State): void {
   // FIRST RESET BOTH
   const entity_pb = document.getElementById("power_box")!;
@@ -955,17 +968,13 @@ function power_ball_move(s: State): void {
   }
 }
 
-// ! HAS SIDE EFFECTS
-let test = false;
 function show_power_up_line(s: State): void {
   // FIRST RESET BOTH
-  const entity_pb = document.getElementById("power_select")!;
-  if (s.meta_state.show_active_line && !test) {
-    test = true;
-    entity_pb.setAttribute("style", `visibility: visible`);
+  const entity_pb_line = document.getElementById("power_select")!;
+  if (s.meta_state.show_active_line) {
+    entity_pb_line.setAttribute("style", `stroke: white; stroke-width: 1.5`);
   } else {
-    test = false;
-    entity_pb.setAttribute("style", `visibility: hidden`);
+    entity_pb_line.setAttribute("style", `stroke: white; stroke-width: 0`);
   }
 }
 
