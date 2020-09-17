@@ -22,18 +22,40 @@ type Paddle_state = Readonly<{
 
 type heuristic_ball = ball_state | null;
 
+type power_up_obj = active_power_up | null;
+
+const enum power_up_type {
+  none = 0,
+  speed = 1,
+  health = 2,
+  return = 3,
+  expand = 4,
+}
+
+// The following class
+class active_power_up {
+  constructor(
+    public readonly power_up_type: power_up_type,
+    public readonly duration_left: number
+  ) {}
+  tick: () => power_up_obj = () => {
+    if (this.duration_left <= 0) return null;
+    else return new active_power_up(this.power_up_type, this.duration_left - 1);
+  };
+}
+
 type player_state = Readonly<{
   paddle: Paddle_state;
-  // power_up_holding: number;
-  // activated_powerup: some_type_of_class_with_duration;
+  power_up_holding: power_up_type;
+  activated_power_up: power_up_obj;
 }>;
 
 type ai_state = Readonly<{
   paddle: Paddle_state;
   y_target: number;
   heuristic_ball: heuristic_ball;
-  // power_up_holding: number;
-  // activated_powerup: some_type_of_class_with_duration;
+  power_up_holding: power_up_type;
+  activated_power_up: power_up_obj;
 }>;
 
 type ball_state = Readonly<{
@@ -58,18 +80,17 @@ type Meta_State = Readonly<{
   difficulty: number;
   has_started: boolean;
   is_paused: boolean;
-  show_active_line: boolean;
+  power_up_activated: boolean;
   has_ended: boolean;
   rand_seed: number;
   button_clicked: number; // 0 is none, 1,2,3 are options
 }>;
 
 type State = Readonly<{
-  player_paddle: Paddle_state;
+  player_state: player_state;
   ai_paddle: ai_state;
   ball: ball_state;
   power_up_ball: power_up_ball_state;
-
   player_score: number;
   ai_score: number;
   meta_state: Meta_State;
@@ -131,10 +152,18 @@ const initial_ai_paddle_state: Paddle_state = {
   direction: 0,
 };
 
+const initial_player_state: player_state = {
+  paddle: initial_player_paddle_state,
+  power_up_holding: power_up_type.speed,
+  activated_power_up: null,
+};
+
 const initial_ai_state: ai_state = {
   paddle: initial_ai_paddle_state,
   y_target: 300,
   heuristic_ball: null,
+  power_up_holding: power_up_type.none,
+  activated_power_up: null,
 };
 
 const initial_ball_State: ball_state = {
@@ -150,7 +179,7 @@ const initial_meta_state: Meta_State = {
   difficulty: 3,
   is_paused: true,
   has_started: false,
-  show_active_line: false,
+  power_up_activated: false,
   has_ended: false,
   button_clicked: 0,
   rand_seed: 1,
@@ -166,7 +195,7 @@ const initial_pb_state: power_up_ball_state = {
 };
 
 const initialState: State = {
-  player_paddle: initial_player_paddle_state,
+  player_state: initial_player_state,
   ai_paddle: initial_ai_state,
   ball: initial_ball_State,
   player_score: 0,
@@ -183,6 +212,7 @@ const enum game_constants {
   STARTING_PADDLE_SIZE = 80,
   STARTING_BALL_SIZE = 14,
   MAX_SCORE = 7,
+  POWERUP_TIME = 100000,
 }
 
 // The following enum is to be used for functions that require identification of side
@@ -292,8 +322,10 @@ const mouseObs = observeMouse((x, y) => new mouse_click(x, y));
 const get_paddle_range = (Paddle_owner: Player_type) => (s: State) => {
   // is_ai is used because the code will be more readable
   const is_ai: boolean = Paddle_owner === Player_type.AI;
-  const y: number = is_ai ? s.ai_paddle.paddle.y : s.player_paddle.y;
-  const size: number = is_ai ? s.ai_paddle.paddle.size : s.player_paddle.size;
+  const y: number = is_ai ? s.ai_paddle.paddle.y : s.player_state.paddle.y;
+  const size: number = is_ai
+    ? s.ai_paddle.paddle.size
+    : s.player_state.paddle.size;
   return {
     max: y + size * game_constants.STARTING_PADDLE_SIZE,
     min: y,
@@ -305,14 +337,14 @@ const has_scored: (s: State) => boolean = (s: State) => s.ball.x >= 564;
 const get_new_player_y: (direction: number) => (s: State) => number = (
   direction: number
 ) => (s: State) => {
-  return s.player_paddle.y + direction < 0
+  return s.player_state.paddle.y + direction < 0
     ? 0 // if the paddle goes above 0, then we set to 0 so the paddle does not go outside view
-    : s.player_paddle.y + direction >
+    : s.player_state.paddle.y + direction >
       game_constants.MAX_Y -
-        s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE
+        s.player_state.paddle.size * game_constants.STARTING_PADDLE_SIZE
     ? game_constants.MAX_Y -
-      s.player_paddle.size * game_constants.STARTING_PADDLE_SIZE // If paddle goes bellow the MAX_Y, we set to MAX_Y + paddle size, so it doesn't go outside view
-    : s.player_paddle.y + direction * s.player_paddle.speed; // If paddle is middle of the view, then simply move the y value
+      s.player_state.paddle.size * game_constants.STARTING_PADDLE_SIZE // If paddle goes bellow the MAX_Y, we set to MAX_Y + paddle size, so it doesn't go outside view
+    : s.player_state.paddle.y + direction * s.player_state.paddle.speed; // If paddle is middle of the view, then simply move the y value
 };
 
 // LCG using GCC's constants
@@ -398,9 +430,12 @@ function move_player_paddle_func(s: State, e: EventType): State {
   // Sets the new player direction
   return {
     ...s,
-    player_paddle: {
-      ...s.player_paddle,
-      direction: e.direction,
+    player_state: {
+      ...s.player_state,
+      paddle: {
+        ...s.player_state.paddle,
+        direction: e.direction,
+      },
     },
   };
 }
@@ -497,18 +532,23 @@ function activate_power_ball(s: State, e: EventType): State {
     ...s,
     meta_state: {
       ...s.meta_state,
-      show_active_line: e.activated,
+      power_up_activated: e.activated,
     },
   };
 }
 
 const move_player_tick_function: (s: State) => State = (s: State) => {
-  const new_player_y: number = get_new_player_y(s.player_paddle.direction)(s);
+  const new_player_y: number = get_new_player_y(
+    s.player_state.paddle.direction
+  )(s);
   return {
     ...s,
-    player_paddle: {
-      ...s.player_paddle,
-      y: new_player_y,
+    player_state: {
+      ...s.player_state,
+      paddle: {
+        ...s.player_state.paddle,
+        y: new_player_y,
+      },
     },
   };
 };
@@ -573,7 +613,9 @@ function find_ai_target_tick_function(s: State): State {
 }
 
 function move_heuristic_ball_tick_function(s: State): State {
-  const new_player_y: number = get_new_player_y(s.player_paddle.direction)(s);
+  const new_player_y: number = get_new_player_y(
+    s.player_state.paddle.direction
+  )(s);
   return {
     ...s,
     ai_paddle: {
@@ -665,6 +707,26 @@ function update_seed_tick_function(s: State): State {
   };
 }
 
+function check_if_player_power_up_activated(s: State): State {
+  if (
+    s.meta_state.power_up_activated &&
+    s.player_state.power_up_holding !== null
+  ) {
+    return {
+      ...s,
+      player_state: {
+        ...s.player_state,
+        power_up_holding: power_up_type.none,
+        activated_power_up: new active_power_up(
+          s.player_state.power_up_holding,
+          game_constants.POWERUP_TIME
+        ),
+      },
+    };
+  }
+  return s;
+}
+
 // HERE BECAUSE WE NEED TO HAVE ABSTRACTION
 function check_end_game_tick_function(s: State): State {
   const game_ended: boolean = s.player_score >= 7 || s.ai_score >= 7;
@@ -689,6 +751,7 @@ function Tick_func(s: State, e: EventType): State {
     update_score_tick_function,
     update_seed_tick_function,
     check_end_game_tick_function,
+    check_if_player_power_up_activated,
   ];
 
   // if game is paused, then tick functions is not performed to preserve state
@@ -804,9 +867,9 @@ const get_position_size: (
   switch (entity_type) {
     case Ent_type.CONTROLLED_PLAYER:
       return {
-        x: s.player_paddle.x,
-        y: s.player_paddle.y,
-        size: s.player_paddle.size,
+        x: s.player_state.paddle.x,
+        y: s.player_state.paddle.y,
+        size: s.player_state.paddle.size,
       };
       break;
     case Ent_type.AI:
@@ -968,16 +1031,37 @@ function power_ball_move(s: State): void {
   }
 }
 
-function show_power_up_line(s: State): void {
+function activate_powerup_element(s: State): void {
   // FIRST RESET BOTH
   const entity_pb_line = document.getElementById("power_select")!;
-  if (s.meta_state.show_active_line) {
+  if (s.meta_state.power_up_activated) {
     entity_pb_line.setAttribute("style", `stroke: white; stroke-width: 1.5`);
   } else {
     entity_pb_line.setAttribute("style", `stroke: white; stroke-width: 0`);
   }
 }
 
+function show_power_up_holding_player(s: State): void {
+  if (s.player_state.power_up_holding !== power_up_type.none) {
+    const entity_pb = document.getElementById(
+      `power_up_${s.player_state.power_up_holding}_symbol`
+    )!;
+    entity_pb.setAttribute("style", `visibility: visible`);
+  } else {
+    clear_powerup_box();
+  }
+}
+function clear_powerup_box(): void {
+  const disable_power_up_element: (power_up_id: number) => void = (
+    power_up_id: number
+  ) => {
+    const entity_pb = document.getElementById(
+      `power_up_${power_up_id}_symbol`
+    )!;
+    entity_pb.setAttribute("style", `visibility: hidden`);
+  };
+  [1, 2, 3, 4].map(disable_power_up_element);
+}
 // ! HAS SIDE EFFECTS
 function updateView(state: State): void {
   // TODO turn these three into one function
@@ -1005,7 +1089,8 @@ function updateView(state: State): void {
     // TODO CONVERT NORMAL FUNCTION TO UNARY
     rendered_entities.map(update_entity(pos_size_getter));
     power_ball_move(state);
-    show_power_up_line(state);
+    activate_powerup_element(state);
+    show_power_up_holding_player(state);
 
     // ONLY TWO ENTITIES THUS NOT WORTH MAKING LIST
     const score_getter = get_side_score(state);
@@ -1019,7 +1104,7 @@ function updateView(state: State): void {
   }
 }
 
-function reset_display(): void {}
+// function reset_display(): void {}
 
 function pong() {
   // Inside this function you will use the classes and functions
