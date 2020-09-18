@@ -1183,23 +1183,26 @@ function new_ball_velocity(s: State, ball_type: Ball_type): Vector {
 
 // The following functions are in regards to updating the view
 // Most of these functions have side effects because they update the view
+// These function will only be in the subscription call due to their side effects
 
-// TODO EXPLAIN THIS
+// This enum will keep track of the entity types, The values happen to be the html tag ids; however, this enum has been created to primarily make coding cleaner, more bug free and consistent
 const enum Ent_type {
   CONTROLLED_PLAYER = "player_paddle",
   AI = "cpu_paddle",
   main_ball = "ball",
   heuristic_ball = "ai_heuristic_ball",
+  power_ball = "power_box"
 }
 
-// for debugging, can add more
+// These are the main entities that will be displayed, this array can be modified before running for debugging and displaying heuristic_ball or other entities
 const rendered_entities: Array<Ent_type> = [
   Ent_type.CONTROLLED_PLAYER,
   Ent_type.AI,
   Ent_type.main_ball,
+  Ent_type.power_ball,
 ];
 
-// TODO WRITE DOCUMENTATION FOR THIS AND HOW I HAVE TO CHANGE ONE PLACE AS MY STATE EVOLVES
+// This function will return the x,y,size attribute; the reason, we are using this is because of an evolving state that changed quite a bit and having a getter function will reduce the number places that need to be modified when the whole state model changes
 const get_position_size: (
   s: State
 ) => (entity_type: Ent_type) => { x: number; y: number; size: number } = (
@@ -1230,13 +1233,20 @@ const get_position_size: (
         size: s.ai_paddle.heuristic_ball.size,
       };
       break;
+    case Ent_type.power_ball:
+      return {
+        x: s.power_up_ball.x,
+        y: s.power_up_ball.y,
+        size: s.power_up_ball.size,
+      };
+      break;
     default:
       return
   }
 };
 
-// TODO ADD DOCUMENTATION
-// ! HAS SIDE EFFECTS
+
+// This function applies transformation to an html svg of one of the entities 
 const apply_svg_transform: (
   entity_type: Ent_type
 ) => (x: number) => (y: number) => (scale: number) => void = (
@@ -1246,8 +1256,7 @@ const apply_svg_transform: (
   entity.setAttribute("transform", `translate(${x},${y}) scale(${scale})`);
 };
 
-// TODO DOCUMENTATION THE FIRST INPUT IS POSITION GETTER
-// ! HAS SIDE EFFECTS
+// This function takes a position&location getter function and an entity type and will set the new position and size attribute
 const update_entity: (
   pos_size_getter: (
     entity_type: Ent_type
@@ -1263,36 +1272,33 @@ const update_entity: (
   )(controller_position_size.size);
 };
 
+
+// This is a score getter function that will return the score of the side
+// this function is curried becuase if a list of sides was needed to be checked, a map function could have applied this to all. On the other hand, in this version of the game only two sides exists thus the curried feature has not been full utuilized
 const get_side_score: (s: State) => (side: Player_type) => number = (
   s: State
 ) => (side: Player_type) => {
-  switch (side) {
-    case Player_type.CONTROLLED_PLAYER:
-      return s.player_score;
-      break;
-    case Player_type.AI:
-      return s.ai_score;
-      break;
-    default:
-      throw new Error("Something bad happened");
-      break;
-  }
+  return side === Player_type.CONTROLLED_PLAYER ? s.player_score : s.ai_score;
 };
 
-// TODO WRITE DOCO ON TO WHY THIS?
+// We will use this function to return the prefix of the score bubble id in the html
+// This is not required, however, changes to the html occured a lot, thus this will decrease the number of changes required to the ts bu creating abstraction
 const get_score_ui_prefix: (side: Player_type) => string = (
   side: Player_type
 ) => (side == Player_type.AI ? "ai_ui_score_" : "player_ui_score_");
 
-// ! HAS SIDE EFFECTS
+// This function will update a given score bubble based on the latest score
 const update_score_GUI: (
   get_score: (side: Player_type) => number
 ) => (side: Player_type) => void = (
   get_score: (side: Player_type) => number
 ) => (side: Player_type) => {
+  // returns the score of a side
   const score = get_score(side);
+  // gets the prefix for the ui id to update
   const html_score_id_prefix = get_score_ui_prefix(side);
-  if (score > 0 && score <= 7) {
+  // if in the range, then it will update the corresponding score bubble by filling it indicating a score
+  if (score > 0 && score <= game_constants.MAX_SCORE) {
     const ui_score_object = document.getElementById(
       html_score_id_prefix + String(score)
     )!;
@@ -1300,10 +1306,10 @@ const update_score_GUI: (
   }
 };
 
-// TODO TEST THIS BOI
-// ! HAS SIDE EFFECTS
+// This function will reset all the scores for both sides to reset the game in the end
 function reset_score(): void {
-  // TODO WRITE SOME DOCO AND RECURSIVE NATURE
+
+  // A recursive function that will work backwards and set all score bubbles to empty to reset the game
   const reset_score_aux: (html_score_id_prefix) => (current_score) => void = (
     html_score_id_prefix
   ) => (current_score) => {
@@ -1317,36 +1323,37 @@ function reset_score(): void {
     reset_score_aux(html_score_id_prefix)(current_score - 1);
   };
 
+  // we call the recursive function on both player types because they have diffrent guid
   reset_score_aux(get_score_ui_prefix(Player_type.CONTROLLED_PLAYER))(game_constants.MAX_SCORE);
   reset_score_aux(get_score_ui_prefix(Player_type.AI))(game_constants.MAX_SCORE);
 }
 
+// This enum will keep track of the menus, The values happen to be the html tag ids; however, this enum has been created to primarily make coding cleaner, more bug free and consistent
 const enum MenuType {
   PauseMenu = "pauseMenu",
   EndMenu = "EndGameMenu",
   StartMenu = "startMenu",
 }
 
-function displayMenu(m: MenuType, display: boolean): void {
+// This function will display the right menu, based on the display condition
+function displayMenu(m: MenuType, display_condition: boolean): void {
   const entity = document.getElementById(m)!;
-  if (display) {
+  if (display_condition) {
     entity.setAttribute("style", `visibility: visible`);
   } else {
     entity.setAttribute("style", `visibility: hidden`);
   }
 }
 
-// ! HAS SIDE EFFECT
-function updateWinText(player_won: boolean): void {
-  // FIRST RESET BOTH
-
+// This function will set the write end text visible based on the input boolean indicating if the player has won
+function updateWinText(has_player_won: boolean): void {
   // SET THE RIGHT ONE
-  const html_tag_text_winner = player_won ? "end_win" : "end_lose";
+  const html_tag_text_winner = has_player_won ? "end_win" : "end_lose";
   const entity = document.getElementById(html_tag_text_winner)!;
   entity.setAttribute("style", `visibility: visible`);
 }
 
-// ! HAS SIDE EFFECTS
+// This function will hide both win texts on the display for the next round, where only the right one will be set visible
 function resetWinText(): void {
   // FIRST RESET BOTH
   const entity_win = document.getElementById("end_win")!;
@@ -1355,23 +1362,20 @@ function resetWinText(): void {
   entity_lose.setAttribute("style", `visibility: hidden`);
 }
 
-// ! HAS SIDE EFFECTS
-function power_ball_move(s: State): void {
+// This function will set the powerup ball/box visible based on the state
+function power_ball_show(s: State): void {
   // FIRST RESET BOTH
   const entity_pb = document.getElementById("power_box")!;
   if (s.power_up_ball.is_active) {
     entity_pb.setAttribute("style", `visibility: visible`);
-    entity_pb.setAttribute(
-      "transform",
-      `translate(${s.power_up_ball.x}, ${s.power_up_ball.y})`
-    );
+
   } else {
     entity_pb.setAttribute("style", `visibility: hidden`);
   }
 }
 
+// This function will display the bar in the powerup box indicating an attempt at using the powerup
 function activate_powerup_element(s: State): void {
-  // FIRST RESET BOTH
   const entity_pb_line = document.getElementById("power_select")!;
   if (s.meta_state.power_up_activated) {
     entity_pb_line.setAttribute("style", `stroke: white; stroke-width: 1.5`);
@@ -1380,16 +1384,19 @@ function activate_powerup_element(s: State): void {
   }
 }
 
+// This function will display the question mark in the ai gui to indicate the possession of a powerup
 function activate_ai_powerup_symbol(s: State): void {
   // FIRST RESET BOTH
   const entity_pb_line = document.getElementById("ai_power_up_symbol")!;
   if (s.ai_paddle.power_up_holding !== power_up_type.none) {
-    entity_pb_line.setAttribute("style", `stroke: white; stroke-width: 1.5`);
+    entity_pb_line.setAttribute("style", `stroke: white; stroke-width: 2`);
   } else {
     entity_pb_line.setAttribute("style", `stroke: white; stroke-width: 0`);
   }
 }
 
+
+// Function will display the icon of the power_up the player is holding and if the player is not holding any power_up, it will hide all the icons
 function show_power_up_holding_player(s: State): void {
   if (s.player_state.power_up_holding !== power_up_type.none) {
     const entity_pb = document.getElementById(
@@ -1400,7 +1407,11 @@ function show_power_up_holding_player(s: State): void {
     clear_powerup_box();
   }
 }
+
+// This loops and sets all the powerup icons to hidden
 function clear_powerup_box(): void {
+
+  // A function that will be hide the visibility of a power_up symbol based on input type
   const disable_power_up_element: (power_up_id: number) => void = (
     power_up_id: number
   ) => {
@@ -1409,16 +1420,18 @@ function clear_powerup_box(): void {
     )!;
     entity_pb.setAttribute("style", `visibility: hidden`);
   };
-  // TODO change this
-  [1, 2, 3, 4].map(disable_power_up_element);
+
+  // Every power_up icon will be hidden
+  [power_up_type.expand, power_up_type.health, power_up_type.return, power_up_type.speed].forEach(disable_power_up_element);
 }
 
-function disp(state: State): void {
+// Runs all three menu functions to display the menu based on each desired condition
+function display_all_menus(state: State): void {
   displayMenu(
     MenuType.PauseMenu,
     state.meta_state.is_paused &&
     state.meta_state.has_started &&
-    !(state.ai_score >= 7 || state.player_score >= 7)
+    !(state.ai_score >= game_constants.MAX_SCORE || state.player_score >= game_constants.MAX_SCORE)
   );
 
   displayMenu(
@@ -1429,28 +1442,32 @@ function disp(state: State): void {
   displayMenu(
     MenuType.EndMenu,
     state.meta_state.is_paused &&
-    (state.ai_score >= 7 || state.player_score >= 7)
+    (state.ai_score >= game_constants.MAX_SCORE || state.player_score >= game_constants.MAX_SCORE)
   );
 }
 
-function update_all_entity(state: State) {
+// For all the entities that will be rendered, it will update their position and size
+function update_all_entity(state: State): void {
   const pos_size_getter = get_position_size(state);
   rendered_entities.map(update_entity(pos_size_getter));
 }
 
-function update_both_score(state: State) {
+// This function updates the player and ai score on the display by calling update GUI on each player_type
+function update_both_score(state: State): void {
   const score_getter = get_side_score(state);
   update_score_GUI(score_getter)(Player_type.CONTROLLED_PLAYER);
   update_score_GUI(score_getter)(Player_type.AI);
 }
+
 // ! HAS SIDE EFFECTS
+// The main update view function that will be ran in the subscribe all
 function updateView(state: State): void {
-  disp(state);
+  display_all_menus(state);
 
   //makes game slightly fast as elements aren't being updated when paused
   if (!state.meta_state.is_paused) {
 
-    const update_functions: Array<(State) => void> = [update_all_entity, power_ball_move, activate_powerup_element, show_power_up_holding_player, activate_ai_powerup_symbol, activate_ai_powerup_symbol, update_both_score]
+    const update_functions: Array<(State) => void> = [update_all_entity, activate_powerup_element, power_ball_show, show_power_up_holding_player, activate_ai_powerup_symbol, activate_ai_powerup_symbol, update_both_score]
 
     apply_value_to_all(update_functions, state)
 
