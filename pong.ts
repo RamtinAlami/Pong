@@ -353,11 +353,33 @@ const get_new_player_y: (direction: number) => (s: State) => number = (
       : s.player_state.paddle.y + direction * s.player_state.paddle.speed; // If paddle is middle of the view, then simply move the y value
 };
 
+// SOME HELPER FUNCTIONS
+
 // LCG using GCC's constants
 // ! BASED ON WEEK 5 OBSERVABLES.TS
 const psudo_randm: (seed: number) => number = (seed: number) => {
   return ((1103515245 * seed + 12345) % 0x80000000) / (0x80000000 - 1);
 };
+
+/**
+ * Function implements a pipe function to apply a series of functions to an input value similar to rxjs's pipe
+ * @param funcs Array of functions that take starting_v type and return the same type
+ * @param starting_v The value that the functions will be applied to
+ */
+function pipeFuncs<T>(funcs: Array<(T) => T>, starting_v: T): T {
+  return funcs.reduce((curr_v, f) => f(curr_v), starting_v)
+}
+
+/**
+ * Takes an array of functions and applies the value to all of them while ignoring their outputs.
+ *
+ * This function will be used for updating the html tags for the impure functions. It would not make sense for this to be used for pure functions.
+ * @param funcs An array of functions that the input is of the type value
+ * @param value The value that will be applied to all the funcs
+ */
+function apply_value_to_all<T, V>(funcs: Array<(T) => V>, value: T): void {
+  funcs.forEach(f => f(value))
+}
 
 /**
  * Generates "almost a" Normally distributed number based on input variance and mean
@@ -898,7 +920,9 @@ const active_power_up_effect_tick: (p: Player_type) => (s: State) => State = (
         expand_power_up_function,
         return_power_up_function,
       ];
-    return power_up_tick_functions.reduce((curr_s, f) => f(p)(curr_s), s);
+    // we first apply player type to each function before piping them into
+    // series of function
+    return pipeFuncs(power_up_tick_functions.map(f => f(p)), s);
   }
   return s;
 };
@@ -915,6 +939,9 @@ function check_end_game_tick_function(s: State): State {
     },
   };
 }
+
+
+
 
 function Tick_func(s: State, e: EventType): State {
   const tick_functions: Array<(s: State) => State> = [
@@ -937,10 +964,11 @@ function Tick_func(s: State, e: EventType): State {
   // if game is paused, then tick functions is not performed to preserve state
   const new_state = s.meta_state.is_paused
     ? s
-    : tick_functions.reduce((curr_s, f) => f(curr_s), s);
+    : pipeFuncs(tick_functions, s);
 
   return new_state;
 }
+
 
 const reduceState = (s: State, e: EventType): State => {
   if (e instanceof mouse_click) return mouse_click_func(s, e);
@@ -1253,8 +1281,32 @@ function clear_powerup_box(): void {
   [1, 2, 3, 4].map(disable_power_up_element);
 }
 // ! HAS SIDE EFFECTS
-function updateView(state: State): void {
-  // TODO turn these three into one function
+// function updateView(state: State): void {
+//   // TODO turn these three into one function
+//   disp(state);
+
+//   //makes game slightly fast
+//   if (!state.meta_state.is_paused) {
+//     const pos_size_getter = get_position_size(state);
+//     rendered_entities.map(update_entity(pos_size_getter));
+//     power_ball_move(state);
+//     activate_powerup_element(state);
+//     show_power_up_holding_player(state);
+
+//     // ONLY TWO ENTITIES THUS NOT WORTH MAKING LIST
+//     activate_ai_powerup_symbol(state);
+//     const score_getter = get_side_score(state);
+//     update_score_GUI(score_getter)(Player_type.CONTROLLED_PLAYER);
+//     update_score_GUI(score_getter)(Player_type.AI);
+//   } else if (!state.meta_state.has_started) {
+//     resetWinText();
+//     reset_score();
+//   } else if (state.meta_state.has_ended) {
+//     updateWinText(state.player_score < state.ai_score);
+//   }
+// }
+
+function disp(state: State): void {
   displayMenu(
     MenuType.PauseMenu,
     state.meta_state.is_paused &&
@@ -1272,21 +1324,30 @@ function updateView(state: State): void {
     state.meta_state.is_paused &&
     (state.ai_score >= 7 || state.player_score >= 7)
   );
+}
 
-  //makes game slightly fast
+function update_all_entity(state: State) {
+  const pos_size_getter = get_position_size(state);
+  rendered_entities.map(update_entity(pos_size_getter));
+}
+
+function update_both_score(state: State) {
+  const score_getter = get_side_score(state);
+  update_score_GUI(score_getter)(Player_type.CONTROLLED_PLAYER);
+  update_score_GUI(score_getter)(Player_type.AI);
+}
+// ! HAS SIDE EFFECTS
+function updateView(state: State): void {
+  // TODO turn these three into one function
+  disp(state);
+
+  //makes game slightly fast as elements aren't being updated when paused
   if (!state.meta_state.is_paused) {
-    const pos_size_getter = get_position_size(state);
-    // TODO CONVERT NORMAL FUNCTION TO UNARY
-    rendered_entities.map(update_entity(pos_size_getter));
-    power_ball_move(state);
-    activate_powerup_element(state);
-    show_power_up_holding_player(state);
 
-    // ONLY TWO ENTITIES THUS NOT WORTH MAKING LIST
-    activate_ai_powerup_symbol(state);
-    const score_getter = get_side_score(state);
-    update_score_GUI(score_getter)(Player_type.CONTROLLED_PLAYER);
-    update_score_GUI(score_getter)(Player_type.AI);
+    const update_functions: Array<(State) => void> = [update_all_entity, power_ball_move, activate_powerup_element, show_power_up_holding_player, activate_ai_powerup_symbol, activate_ai_powerup_symbol, update_both_score]
+
+    apply_value_to_all(update_functions, state)
+
   } else if (!state.meta_state.has_started) {
     resetWinText();
     reset_score();
@@ -1295,7 +1356,6 @@ function updateView(state: State): void {
   }
 }
 
-// function reset_display(): void {}
 
 function pong() {
   // Inside this function you will use the classes and functions
