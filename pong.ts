@@ -37,11 +37,7 @@ class active_power_up {
   tick: () => power_up_obj = () => {
     if (this.duration_left <= 0) return null;
     else {
-      const is_instant_power =
-        (this.power_up_t === power_up_type.health ||
-          this.power_up_t === power_up_type.return);
-      const duration_left = is_instant_power ? 0 : this.duration_left - 1;
-      return new active_power_up(this.power_up_t, duration_left);
+      return new active_power_up(this.power_up_t, this.duration_left - 1);
     }
   };
 }
@@ -131,10 +127,10 @@ class Vector {
    * @param strength This is the amount the vector will changed after reflection
    */
   x_reflect_paddle = (strength: number) => {
-    const new_mag = this.magnitude * strength;
+    const new_mag = this.magnitude * (strength + 0.6);
     // Only change the angle if strength a lot more
-    const new_angle = -(this.angle + (strength > 1 ? strength : 0));
-    return new Vector(this.magnitude, -this.angle);
+    const new_angle = this.angle + strength * 0.5;
+    return new Vector(-new_mag, -new_angle);
   };
 }
 
@@ -157,7 +153,7 @@ const initial_ai_paddle_state: Paddle_state = {
 
 const initial_player_state: player_state = {
   paddle: initial_player_paddle_state,
-  power_up_holding: power_up_type.none,
+  power_up_holding: power_up_type.return,
   activated_power_up: null,
 };
 
@@ -369,6 +365,14 @@ const psudo_randm: (seed: number) => number = (seed: number) => {
 function pipeFuncs<T>(funcs: Array<(T) => T>, starting_v: T): T {
   return funcs.reduce((curr_v, f) => f(curr_v), starting_v)
 }
+
+
+// TODO ADD COMMENT HERE
+function mapFuncs<T, V>(funcs: Array<(T) => V>, value: T): Array<V> {
+  return funcs.map((f) => f(value))
+}
+
+
 
 /**
  * Takes an array of functions and applies the value to all of them while ignoring their outputs.
@@ -1003,11 +1007,25 @@ const return_power_up_function: (p: Player_type) => (s: State) => State = (
       ...s,
       ball: {
         ...s.ball,
-        velocity: s.ball.velocity.x_reflect(),
+        velocity: active_power_up_o.duration_left > game_constants.POWERUP_TIME - 1 ? s.ball.velocity.x_reflect() : s.ball.velocity,
       },
     };
   }
   return s;
+};
+
+const get_paddle_contact_strength: (p: Player_type) => (s: State) => number = (
+  p: Player_type
+) => (s: State) => {
+  const paddle_state: Paddle_state = p === Player_type.AI ? s.ai_paddle.paddle : s.player_state.paddle;
+  const paddle_y: number = paddle_state.y;
+  const paddle_size: number = paddle_state.size * game_constants.STARTING_PADDLE_SIZE;
+  const paddle_center: number = paddle_y + (paddle_size / 2)
+
+  const ball_y: number = s.ball.y;
+
+  const dist_to_center = Math.abs(paddle_center - ball_y) / (paddle_size / 2)
+  return dist_to_center;
 };
 
 const active_power_up_effect_tick: (p: Player_type) => (s: State) => State = (
@@ -1029,7 +1047,7 @@ const active_power_up_effect_tick: (p: Player_type) => (s: State) => State = (
       ];
     // we first apply player type to each function before piping them into
     // series of function
-    return pipeFuncs(power_up_tick_functions.map(f => f(p)), s);
+    return pipeFuncs(mapFuncs(power_up_tick_functions, p), s);
   }
   return s;
 };
@@ -1149,8 +1167,15 @@ function new_ball_velocity(s: State, ball_type: Ball_type): Vector {
     x_pos <= ball_size ||
     x_pos >= game_constants.MAX_X - ball_size ||
     check_collision_with_both_paddle(s)
-  )
+  ) {
+    if (ball_collide_with_paddle(Player_type.AI, s)) {
+      return velocity.x_reflect_paddle(get_paddle_contact_strength(Player_type.AI)(s));
+    } else if (ball_collide_with_paddle(Player_type.CONTROLLED_PLAYER, s)) {
+
+      return velocity.x_reflect_paddle(get_paddle_contact_strength(Player_type.CONTROLLED_PLAYER)(s));
+    }
     return velocity.x_reflect();
+  }
   else if (y_pos <= ball_size || y_pos >= game_constants.MAX_Y - ball_size)
     return velocity.y_reflect();
   else return velocity;
@@ -1384,6 +1409,7 @@ function clear_powerup_box(): void {
     )!;
     entity_pb.setAttribute("style", `visibility: hidden`);
   };
+  // TODO change this
   [1, 2, 3, 4].map(disable_power_up_element);
 }
 
