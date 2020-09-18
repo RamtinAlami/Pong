@@ -35,12 +35,18 @@ const enum power_up_type {
 // The following class
 class active_power_up {
   constructor(
-    public readonly power_up_type: power_up_type,
+    public readonly power_up_t: power_up_type,
     public readonly duration_left: number
-  ) {}
+  ) { }
   tick: () => power_up_obj = () => {
     if (this.duration_left <= 0) return null;
-    else return new active_power_up(this.power_up_type, this.duration_left - 1);
+    else {
+      const is_instant_power =
+        (this.power_up_t === power_up_type.health ||
+          this.power_up_t === power_up_type.return);
+      const duration_left = is_instant_power ? 0 : this.duration_left - 1;
+      return new active_power_up(this.power_up_t, duration_left);
+    }
   };
 }
 
@@ -212,7 +218,7 @@ const enum game_constants {
   STARTING_PADDLE_SIZE = 80,
   STARTING_BALL_SIZE = 14,
   MAX_SCORE = 7,
-  POWERUP_TIME = 100000,
+  POWERUP_TIME = 600,
 }
 
 // The following enum is to be used for functions that require identification of side
@@ -226,24 +232,24 @@ const enum Player_type {
 // Classes are created because they store a value
 // TODO complete this ^
 class Tick {
-  constructor(public readonly elapsed: number) {}
+  constructor(public readonly elapsed: number) { }
 }
 class move_player_paddle {
-  constructor(public readonly direction: number) {}
+  constructor(public readonly direction: number) { }
 }
 
 class use_power_up {
-  constructor(public readonly activated: boolean) {}
+  constructor(public readonly activated: boolean) { }
 }
 
 // pause did not require to be a class; however, for consistency was created as a class
 class pause {
-  constructor() {}
+  constructor() { }
 }
 
 // The following class is constructed by mouse click
 class mouse_click {
-  constructor(public readonly x: number, public readonly y: number) {}
+  constructor(public readonly x: number, public readonly y: number) { }
 }
 
 type Event = "keydown" | "keyup";
@@ -341,10 +347,10 @@ const get_new_player_y: (direction: number) => (s: State) => number = (
     ? 0 // if the paddle goes above 0, then we set to 0 so the paddle does not go outside view
     : s.player_state.paddle.y + direction >
       game_constants.MAX_Y -
-        s.player_state.paddle.size * game_constants.STARTING_PADDLE_SIZE
-    ? game_constants.MAX_Y -
+      s.player_state.paddle.size * game_constants.STARTING_PADDLE_SIZE
+      ? game_constants.MAX_Y -
       s.player_state.paddle.size * game_constants.STARTING_PADDLE_SIZE // If paddle goes bellow the MAX_Y, we set to MAX_Y + paddle size, so it doesn't go outside view
-    : s.player_state.paddle.y + direction * s.player_state.paddle.speed; // If paddle is middle of the view, then simply move the y value
+      : s.player_state.paddle.y + direction * s.player_state.paddle.speed; // If paddle is middle of the view, then simply move the y value
 };
 
 // LCG using GCC's constants
@@ -625,23 +631,23 @@ function move_heuristic_ball_tick_function(s: State): State {
           ? s.ai_paddle.heuristic_ball.x < 40
             ? null
             : {
-                ...s.ai_paddle.heuristic_ball,
-                x:
-                  s.ai_paddle.heuristic_ball.x +
-                  new_ball_velocity(s, Ball_type.heuristic_ball).dx * 2,
-                y:
-                  s.ai_paddle.heuristic_ball.y +
-                  new_ball_velocity(s, Ball_type.heuristic_ball).dy * 2,
-                velocity: new_ball_velocity(s, Ball_type.heuristic_ball),
-              }
+              ...s.ai_paddle.heuristic_ball,
+              x:
+                s.ai_paddle.heuristic_ball.x +
+                new_ball_velocity(s, Ball_type.heuristic_ball).dx * 2,
+              y:
+                s.ai_paddle.heuristic_ball.y +
+                new_ball_velocity(s, Ball_type.heuristic_ball).dy * 2,
+              velocity: new_ball_velocity(s, Ball_type.heuristic_ball),
+            }
           : ball_collide_with_paddle(Player_type.CONTROLLED_PLAYER, s)
-          ? {
+            ? {
               ...s.ball,
               x: s.ball.x + new_ball_velocity(s, Ball_type.main_ball).dx,
               y: s.ball.y + new_ball_velocity(s, Ball_type.main_ball).dy,
               velocity: new_ball_velocity(s, Ball_type.main_ball),
             }
-          : null,
+            : null,
     },
   };
 }
@@ -717,15 +723,185 @@ function check_if_player_power_up_activated(s: State): State {
       player_state: {
         ...s.player_state,
         power_up_holding: power_up_type.none,
-        activated_power_up: new active_power_up(
+        activated_power_up: s.player_state.power_up_holding !== power_up_type.none ? new active_power_up(
           s.player_state.power_up_holding,
           game_constants.POWERUP_TIME
-        ),
+        ) : s.player_state.activated_power_up,
       },
     };
   }
   return s;
 }
+
+// Curried function because we are going call for different players
+const active_power_up_tick: (p: Player_type) => (s: State) => State = (
+  p: Player_type
+) => (s: State) => {
+  // the powerup object
+  const active_power_up_o =
+    p === Player_type.AI
+      ? s.ai_paddle.activated_power_up
+      : s.player_state.activated_power_up;
+
+  if (active_power_up_o !== null) {
+    if (p === Player_type.AI) {
+      return {
+        ...s,
+        ai_paddle: {
+          ...s.ai_paddle,
+          activated_power_up: active_power_up_o.tick(),
+        },
+      };
+    } else {
+      return {
+        ...s,
+        player_state: {
+          ...s.player_state,
+          activated_power_up: active_power_up_o.tick(),
+        },
+      };
+    }
+  }
+  return s;
+};
+
+const health_power_up_function: (p: Player_type) => (s: State) => State = (
+  p: Player_type
+) => (s: State) => {
+  const active_power_up_o =
+    p === Player_type.AI
+      ? s.ai_paddle.activated_power_up
+      : s.player_state.activated_power_up;
+  if (active_power_up_o.power_up_t === power_up_type.health) {
+    if (p === Player_type.AI) {
+      return {
+        ...s,
+        player_score: s.player_score - 1,
+      };
+    } else {
+      return {
+        ...s,
+        ai_score: s.ai_score - 1,
+      };
+    }
+  } else return s;
+};
+
+const speed_power_up_function: (p: Player_type) => (s: State) => State = (
+  p: Player_type
+) => (s: State) => {
+  const active_power_up_o =
+    p === Player_type.AI
+      ? s.ai_paddle.activated_power_up
+      : s.player_state.activated_power_up;
+  if (active_power_up_o.power_up_t === power_up_type.speed) {
+    if (p === Player_type.CONTROLLED_PLAYER) {
+      return {
+        ...s,
+        player_state: {
+          ...s.player_state,
+          paddle: {
+            ...s.player_state.paddle,
+            // if ending soon then set back to normal
+            speed: active_power_up_o.duration_left > 1 ? 10 : initial_player_paddle_state.speed,
+          },
+        },
+      };
+    } else {
+      return {
+        ...s,
+        ai_paddle: {
+          ...s.ai_paddle,
+          paddle: {
+            ...s.ai_paddle.paddle,
+            // if ending soon then set back to normal
+            speed: active_power_up_o.duration_left > 1 ? 4 : 1,
+          },
+        },
+      };
+    }
+  }
+  return s;
+};
+
+const expand_power_up_function: (p: Player_type) => (s: State) => State = (
+  p: Player_type
+) => (s: State) => {
+  const active_power_up_o =
+    p === Player_type.AI
+      ? s.ai_paddle.activated_power_up
+      : s.player_state.activated_power_up;
+
+  if (active_power_up_o.power_up_t === power_up_type.expand) {
+    if (p === Player_type.CONTROLLED_PLAYER) {
+      return {
+        ...s,
+        player_state: {
+          ...s.player_state,
+          paddle: {
+            ...s.player_state.paddle,
+            // if ending soon then set back to normal
+            size: active_power_up_o.duration_left > 1 ? 2 : 1,
+          },
+        },
+      };
+    } else {
+      return {
+        ...s,
+        ai_paddle: {
+          ...s.ai_paddle,
+          paddle: {
+            ...s.ai_paddle.paddle,
+            // if ending soon then set back to normal
+            size: active_power_up_o.duration_left > 1 ? 2 : 1,
+          },
+        },
+      };
+    }
+  }
+  return s;
+};
+
+const return_power_up_function: (p: Player_type) => (s: State) => State = (
+  p: Player_type
+) => (s: State) => {
+  const active_power_up_o =
+    p === Player_type.AI
+      ? s.ai_paddle.activated_power_up
+      : s.player_state.activated_power_up;
+  if (active_power_up_o.power_up_t === power_up_type.return) {
+    return {
+      ...s,
+      ball: {
+        ...s.ball,
+        velocity: s.ball.velocity.x_reflect(),
+      },
+    };
+  }
+  return s;
+};
+
+const active_power_up_effect_tick: (p: Player_type) => (s: State) => State = (
+  p: Player_type
+) => (s: State) => {
+  const active_power_up_o =
+    p === Player_type.AI
+      ? s.ai_paddle.activated_power_up
+      : s.player_state.activated_power_up;
+
+  if (active_power_up_o !== null) {
+    const power_up_tick_functions: Array<(
+      p: Player_type
+    ) => (s: State) => State> = [
+        health_power_up_function,
+        speed_power_up_function,
+        expand_power_up_function,
+        return_power_up_function,
+      ];
+    return power_up_tick_functions.reduce((curr_s, f) => f(p)(curr_s), s);
+  }
+  return s;
+};
 
 // HERE BECAUSE WE NEED TO HAVE ABSTRACTION
 function check_end_game_tick_function(s: State): State {
@@ -744,6 +920,10 @@ function Tick_func(s: State, e: EventType): State {
   const tick_functions: Array<(s: State) => State> = [
     move_player_tick_function,
     move_ai_tick_function,
+    active_power_up_effect_tick(Player_type.CONTROLLED_PLAYER),
+    active_power_up_effect_tick(Player_type.AI),
+    active_power_up_tick(Player_type.AI),
+    active_power_up_tick(Player_type.CONTROLLED_PLAYER),
     find_ai_target_tick_function,
     move_heuristic_ball_tick_function,
     move_ball_tick_function,
@@ -802,8 +982,8 @@ function get_new_power_ball_velocity(s: State): Vector {
   return s.power_up_ball.x <= 100 || s.power_up_ball.x >= 400
     ? s.power_up_ball.velocity.x_reflect()
     : s.power_up_ball.y <= 100 || s.ball.y >= 400
-    ? s.power_up_ball.velocity.y_reflect()
-    : s.power_up_ball.velocity;
+      ? s.power_up_ball.velocity.y_reflect()
+      : s.power_up_ball.velocity;
 }
 
 const enum Ball_type {
@@ -821,8 +1001,8 @@ function new_ball_velocity(s: State, ball_type: Ball_type): Vector {
   const ball_state = is_h_ball
     ? s.ai_paddle.heuristic_ball
     : is_main_ball
-    ? s.ball
-    : s.power_up_ball;
+      ? s.ball
+      : s.power_up_ball;
 
   const y_pos = ball_state.y;
   const x_pos = ball_state.x;
@@ -1041,6 +1221,16 @@ function activate_powerup_element(s: State): void {
   }
 }
 
+function activate_ai_powerup_symbol(s: State): void {
+  // FIRST RESET BOTH
+  const entity_pb_line = document.getElementById("ai_power_up_symbol")!;
+  if (s.ai_paddle.power_up_holding !== power_up_type.none) {
+    entity_pb_line.setAttribute("style", `stroke: white; stroke-width: 1.5`);
+  } else {
+    entity_pb_line.setAttribute("style", `stroke: white; stroke-width: 0`);
+  }
+}
+
 function show_power_up_holding_player(s: State): void {
   if (s.player_state.power_up_holding !== power_up_type.none) {
     const entity_pb = document.getElementById(
@@ -1068,8 +1258,8 @@ function updateView(state: State): void {
   displayMenu(
     MenuType.PauseMenu,
     state.meta_state.is_paused &&
-      state.meta_state.has_started &&
-      !(state.ai_score >= 7 || state.player_score >= 7)
+    state.meta_state.has_started &&
+    !(state.ai_score >= 7 || state.player_score >= 7)
   );
 
   displayMenu(
@@ -1080,7 +1270,7 @@ function updateView(state: State): void {
   displayMenu(
     MenuType.EndMenu,
     state.meta_state.is_paused &&
-      (state.ai_score >= 7 || state.player_score >= 7)
+    (state.ai_score >= 7 || state.player_score >= 7)
   );
 
   //makes game slightly fast
@@ -1093,6 +1283,7 @@ function updateView(state: State): void {
     show_power_up_holding_player(state);
 
     // ONLY TWO ENTITIES THUS NOT WORTH MAKING LIST
+    activate_ai_powerup_symbol(state);
     const score_getter = get_side_score(state);
     update_score_GUI(score_getter)(Player_type.CONTROLLED_PLAYER);
     update_score_GUI(score_getter)(Player_type.AI);
