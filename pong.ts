@@ -401,12 +401,13 @@ function randn_bm(seed: number, variance: number, mean: number): number {
  * @param y The y position of the mouse cursor
  */
 function button_click_check(x: number, y: number): number {
+  console.log(x, y)
   if (x > 173 && x < 443) {
-    if (y > 278 && y < 342) {
+    if (y > 347 && y < 407) {
       return 1;
-    } else if (y > 362 && y < 432) {
+    } else if (y > 430 && y < 490) {
       return 2;
-    } else if (y > 442 && y < 505) {
+    } else if (y > 512 && y < 574) {
       return 3;
     }
   }
