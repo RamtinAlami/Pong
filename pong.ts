@@ -16,19 +16,23 @@ type Paddle_state = Readonly<{
   direction: number;
 }>;
 
+// The following two types will be used in the states
+// The types are the union of their type and null because the items with this type are spawned in time and removed at other times.
 type heuristic_ball = ball_state | null;
-
 type power_up_obj = active_power_up | null;
 
+// The following enum, will keep track of the power_up types. The enum has been used for consistency, readability and also it will keep track of the power_up ID that will be used in certain sections.
 const enum power_up_type {
   none = 0,
   speed = 1,
-  health = 2,
+  fast_ball = 2,
   return = 3,
   expand = 4,
 }
 
-// The following class
+/**
+ * This is class is to keep track of the active power up and has a tick method that will return a new active_power_up class with decremented duration_left. An instance will be created when the player or Ai activates the power_up they're holding.
+ */
 class active_power_up {
   constructor(
     public readonly power_up_t: power_up_type,
@@ -42,6 +46,7 @@ class active_power_up {
   };
 }
 
+// The following types have to do with the state and will be gone into detail in the report.
 type player_state = Readonly<{
   paddle: Paddle_state;
   power_up_holding: power_up_type;
@@ -83,8 +88,10 @@ type Meta_State = Readonly<{
   rand_seed: number;
   button_clicked: number; // 0 is none, 1,2,3 are options
   last_hit: Player_type;
+  score_has_updated: boolean;
 }>;
 
+// The main state type
 type State = Readonly<{
   player_state: player_state;
   ai_paddle: ai_state;
@@ -95,40 +102,32 @@ type State = Readonly<{
   meta_state: Meta_State;
 }>;
 
+/**
+ * The will be a vector and it has several methods that will be used for ball mechanics
+ */
 class Vector {
-  public readonly dx: number;
-  public readonly dy: number;
-
-  /**
-   * The constructor for the vector class
-   * @param magnitude The magnitude of the vector
-   * @param angle The angle in radians
-   */
   constructor(
     public readonly magnitude: number = 0,
     public readonly angle: number = 0
-  ) {
-    this.dx = magnitude * Math.cos(angle);
-    this.dy = magnitude * Math.sin(angle);
-  }
-
-  scale = (scale: number) => new Vector(this.magnitude * scale, this.angle);
+  ) { }
+  dx: () => number = () => this.magnitude * Math.cos(this.angle)
+  dy: () => number = () => this.magnitude * Math.cos(this.angle)
+  scale: (scale: number) => Vector = (scale: number) => new Vector(this.magnitude * scale, this.angle);
 
   // This will reflect the vector along the x axis
-  x_reflect = () => new Vector(-this.magnitude, -this.angle);
+  x_reflect: () => Vector = () => new Vector(-this.magnitude, -this.angle);
 
   // This will reflect the vector along the y axis
-  y_reflect = () => new Vector(this.magnitude, -this.angle);
+  y_reflect: () => Vector = () => new Vector(this.magnitude, -this.angle);
 
   /**
    * This is similar to x_reflect; however, it will be used for paddles to change
    * the magnitude and angle based on "strength" which determined by which part of the paddle
-   * collides with the ball
+   * collides with the ball.
    * @param strength This is the amount the vector will changed after reflection
    */
-  x_reflect_paddle = (strength: number) => {
+  x_reflect_paddle: (strength: number) => Vector = (strength: number) => {
     const new_mag = this.magnitude * (strength + 0.6);
-    // Only change the angle if strength a lot more
     const new_angle = this.angle + strength * 0.5;
     return new Vector(-new_mag, -new_angle);
   };
@@ -153,7 +152,7 @@ const initial_ai_paddle_state: Paddle_state = {
 
 const initial_player_state: player_state = {
   paddle: initial_player_paddle_state,
-  power_up_holding: power_up_type.return,
+  power_up_holding: power_up_type.fast_ball,
   activated_power_up: null,
 };
 
@@ -183,6 +182,7 @@ const initial_meta_state: Meta_State = {
   button_clicked: 0,
   rand_seed: 1,
   last_hit: Player_type.AI,
+  score_has_updated: false,
 };
 
 const initial_pb_state: power_up_ball_state = {
@@ -318,41 +318,15 @@ const observeMouse = <T>(result: (clientX: number, clientY: number) => T) =>
 
 const mouseObs = observeMouse((x, y) => new mouse_click(x, y));
 
-// NEED TO COMBINED TWO INTO ONE AND USE TYPE
-// TODO does this need type???
-// TODO The function is curried because of setting of functions before condition checking later
-const get_paddle_range = (Paddle_owner: Player_type) => (s: State) => {
-  // is_ai is used because the code will be more readable
-  const is_ai: boolean = Paddle_owner === Player_type.AI;
-  const y: number = is_ai ? s.ai_paddle.paddle.y : s.player_state.paddle.y;
-  const size: number = is_ai
-    ? s.ai_paddle.paddle.size
-    : s.player_state.paddle.size;
-  return {
-    max: y + size * game_constants.STARTING_PADDLE_SIZE,
-    min: y,
-  };
-};
 
-const has_scored: (s: State) => boolean = (s: State) => s.ball.x >= 564;
+// SOME HELPER FUNCTIONS FOR THE REST
 
-const get_new_player_y: (direction: number) => (s: State) => number = (
-  direction: number
-) => (s: State) => {
-  return s.player_state.paddle.y + direction < 0
-    ? 0 // if the paddle goes above 0, then we set to 0 so the paddle does not go outside view
-    : s.player_state.paddle.y + direction >
-      game_constants.MAX_Y -
-      s.player_state.paddle.size * game_constants.STARTING_PADDLE_SIZE
-      ? game_constants.MAX_Y -
-      s.player_state.paddle.size * game_constants.STARTING_PADDLE_SIZE // If paddle goes bellow the MAX_Y, we set to MAX_Y + paddle size, so it doesn't go outside view
-      : s.player_state.paddle.y + direction * s.player_state.paddle.speed; // If paddle is middle of the view, then simply move the y value
-};
-
-// SOME HELPER FUNCTIONS
-
-// LCG using GCC's constants
-// ! BASED ON WEEK 5 OBSERVABLES.TS
+/**
+ * This function produces pseudo random numbers based on a seed.
+ * Linear congruential generator is utilized.
+ * This function is primally been taken from FIT2102's observables.ts file
+ * @param seed The seed that will used to generate the number
+ */
 const psudo_randm: (seed: number) => number = (seed: number) => {
   return ((1103515245 * seed + 12345) % 0x80000000) / (0x80000000 - 1);
 };
@@ -367,12 +341,14 @@ function pipeFuncs<T>(funcs: Array<(T) => T>, starting_v: T): T {
 }
 
 
-// TODO ADD COMMENT HERE
+/**
+ * Function implements a reverse map function, where a lot of functions are mapped to a single value
+ * @param funcs Array of functions that take value type
+ * @param value The value that all the functions will be ran on
+ */
 function mapFuncs<T, V>(funcs: Array<(T) => V>, value: T): Array<V> {
   return funcs.map((f) => f(value))
 }
-
-
 
 /**
  * Takes an array of functions and applies the value to all of them while ignoring their outputs.
@@ -381,7 +357,7 @@ function mapFuncs<T, V>(funcs: Array<(T) => V>, value: T): Array<V> {
  * @param funcs An array of functions that the input is of the type value
  * @param value The value that will be applied to all the funcs
  */
-function apply_value_to_all<T, V>(funcs: Array<(T) => V>, value: T): void {
+function forEachFuncs<T, V>(funcs: Array<(T) => V>, value: T): void {
   funcs.forEach(f => f(value))
 }
 
@@ -409,6 +385,7 @@ function randn_bm(seed: number, variance: number, mean: number): number {
  * Function returns a number of the selected button
  * 0 is default if selected area does not have a button in it
  * 1, 2 or 3 if one of the selected areas selected
+ * This function will be used for the menus. Also note that the psotion of buttons are the same for all menus
  * @param x The x position of the mouse cursor
  * @param y The y position of the mouse cursor
  */
@@ -436,6 +413,26 @@ function set_seed(s: State, x: number, y: number): State {
   return { ...s, meta_state: { ...s.meta_state, rand_seed: x + y } };
 }
 
+
+/**
+ * Given a player type, it will return the position of the two ends of the paddle
+ * @param Paddle_owner Player type that the y ends will be returned
+ * @param s The state of the game
+ */
+const get_paddle_range = (Paddle_owner: Player_type) => (s: State) => {
+  // is_ai is used because the code will be more readable
+  const is_ai: boolean = Paddle_owner === Player_type.AI;
+  const y: number = is_ai ? s.ai_paddle.paddle.y : s.player_state.paddle.y;
+  const size: number = is_ai
+    ? s.ai_paddle.paddle.size
+    : s.player_state.paddle.size;
+  return {
+    max: y + size * game_constants.STARTING_PADDLE_SIZE,
+    min: y,
+  };
+};
+
+
 /**
  * This function returns a amount the AI will make mistake
  * The output is primarily based on the player score, ai score and game difficulty
@@ -454,11 +451,9 @@ const prediction_deviation: (s: State) => number = (s: State) => {
 // For consistency and reduction of bugs, they're defined here
 type EventType = move_player_paddle | Tick | pause | mouse_click | use_power_up;
 
-// used for keyboard to update
-function move_player_paddle_func(s: State, e: EventType): State {
-  // The error is to make sure the right event is evoked
-  if (!(e instanceof move_player_paddle)) throw "Wrong Event type";
-
+// used for keyboard to update the direction
+// The function takes a state and move_player event and returns a new updated state
+function move_player_paddle_func(s: State, e: move_player_paddle): State {
   // Sets the new player direction
   return {
     ...s,
@@ -472,6 +467,26 @@ function move_player_paddle_func(s: State, e: EventType): State {
   };
 }
 
+/**
+ * This function is to be used with the arrow key functions, as it moves the player paddle based on the input direction.
+ * @param direction 1 or -1 depending on which direction the player is moving
+ * @param s The state of the game
+ */
+const get_new_player_y: (direction: number) => (s: State) => number = (
+  direction: number
+) => (s: State) => {
+  return s.player_state.paddle.y + direction < 0
+    ? 0 // if the paddle goes above 0, then we set to 0 so the paddle does not go outside view
+    : s.player_state.paddle.y + direction >
+      game_constants.MAX_Y -
+      s.player_state.paddle.size * game_constants.STARTING_PADDLE_SIZE
+      ? game_constants.MAX_Y -
+      s.player_state.paddle.size * game_constants.STARTING_PADDLE_SIZE // If paddle goes bellow the MAX_Y, we set to MAX_Y + paddle size, so it doesn't go outside view
+      : s.player_state.paddle.y + direction * s.player_state.paddle.speed; // If paddle is middle of the view, then simply move the y value
+};
+
+// This function will take a state and switch the is_paused value in the state and return a new state.
+// This function will be evoked when the escape button is pressed.
 function pause_func(s: State, e: EventType): State {
   if (s.meta_state.has_started && !s.meta_state.has_ended) {
     return {
@@ -486,20 +501,8 @@ function pause_func(s: State, e: EventType): State {
   }
 }
 
-function set_difficulty(new_difficulty: number, s: State): State {
-  return {
-    ...s,
-    meta_state: { ...s.meta_state, difficulty: new_difficulty },
-  };
-}
-
-function set_start(s: State): State {
-  return {
-    ...s,
-    meta_state: { ...s.meta_state, has_started: true, is_paused: false },
-  };
-}
-
+// This function will take a state and set the is_paused value to false.
+// This function will be used with other functions to ensure the game continues
 function unpause(s: State): State {
   return {
     ...s,
@@ -507,6 +510,30 @@ function unpause(s: State): State {
   };
 }
 
+// This function will set the difficulty the difficulty to the new returned state
+// This function will be used in in the menu option
+function set_difficulty(new_difficulty: number, s: State): State {
+  return {
+    ...s,
+    meta_state: { ...s.meta_state, difficulty: new_difficulty },
+  };
+}
+
+// This function will setup the state for start of the game
+function set_start(s: State): State {
+  return {
+    ...s,
+    meta_state: { ...s.meta_state, has_started: true, is_paused: false },
+  };
+}
+
+
+/**
+ * The game start menu function that will ran the possible outcomes based on the position of the mouse click
+ * @param s The state of the game
+ * @param mouse_x the x position of the mouse from the mouse click event
+ * @param mouse_y the y position of the mouse from the mouse click event
+ */
 function game_start_menu(s: State, mouse_x: number, mouse_y: number) {
   const seed_set_s = set_seed(s, mouse_x, mouse_y);
   const button_clicked = button_click_check(mouse_x, mouse_y); // only return 1, 2, 3 or 0 if
@@ -518,11 +545,18 @@ function game_start_menu(s: State, mouse_x: number, mouse_y: number) {
   }
 }
 
+// This function is used to reset the game in the end
+// The function is evoked when the player clicks on the reset buttons
 function reset_game() {
   return initialState;
 }
 
-// TODO CHECK TWO IF STATEMENTS
+/**
+ * The game pause menu function that will ran the possible outcomes based on the position of the mouse click
+ * @param s The state of the game
+ * @param mouse_x the x position of the mouse from the mouse click event
+ * @param mouse_y the y position of the mouse from the mouse click event
+ */
 function pause_menu(s: State, mouse_x: number, mouse_y: number): State {
   const button_clicked = button_click_check(mouse_x, mouse_y); // only return 1, 2, 3 or 0 if none
   if (button_clicked == 1) {
@@ -530,11 +564,16 @@ function pause_menu(s: State, mouse_x: number, mouse_y: number): State {
   }
   if (button_clicked == 2) {
     return reset_game();
-  } else {
-    return s;
   }
+  return s;
 }
 
+/**
+ * The game end menu function that will reset the game if the user clicks first button
+ * @param s The state of the game
+ * @param mouse_x the x position of the mouse from the mouse click event
+ * @param mouse_y the y position of the mouse from the mouse click event
+ */
 function end_menu(s: State, mouse_x: number, mouse_y: number): State {
   const button_clicked = button_click_check(mouse_x, mouse_y); // only return 1, 2, 3 or 0 if none
   if (button_clicked == 1) {
@@ -544,9 +583,9 @@ function end_menu(s: State, mouse_x: number, mouse_y: number): State {
   }
 }
 
-function mouse_click_func(s: State, e: EventType): State {
-  if (!(e instanceof mouse_click)) throw "wrong";
-
+// The event that will be ran in the reduce states if the mouse has been clicked
+// This function returns the right menu function based on the state
+function mouse_click_func(s: State, e: mouse_click): State {
   if (!s.meta_state.has_started) {
     return game_start_menu(s, e.x, e.y);
   } else if (s.meta_state.has_ended) {
@@ -557,8 +596,9 @@ function mouse_click_func(s: State, e: EventType): State {
   return s;
 }
 
-function activate_power_ball(s: State, e: EventType): State {
-  if (!(e instanceof use_power_up)) throw "wrong";
+// The active power ball function that is evoked in the reduce state when the space bar is pressed by the user
+// It only sets the state of power_up_activated to active in the new returned state
+function activate_power_ball(s: State, e: use_power_up): State {
   return {
     ...s,
     meta_state: {
@@ -567,6 +607,8 @@ function activate_power_ball(s: State, e: EventType): State {
     },
   };
 }
+
+// The following functions will be used in the tick function that is the game steps
 
 const move_player_tick_function: (s: State) => State = (s: State) => {
   const new_player_y: number = get_new_player_y(
@@ -661,17 +703,17 @@ function move_heuristic_ball_tick_function(s: State): State {
               ...s.ai_paddle.heuristic_ball,
               x:
                 s.ai_paddle.heuristic_ball.x +
-                new_ball_velocity(s, Ball_type.heuristic_ball).dx * 2,
+                new_ball_velocity(s, Ball_type.heuristic_ball).dx() * 2,
               y:
                 s.ai_paddle.heuristic_ball.y +
-                new_ball_velocity(s, Ball_type.heuristic_ball).dy * 2,
+                new_ball_velocity(s, Ball_type.heuristic_ball).dy() * 2,
               velocity: new_ball_velocity(s, Ball_type.heuristic_ball),
             }
           : ball_collide_with_paddle(Player_type.CONTROLLED_PLAYER, s)
             ? {
               ...s.ball,
-              x: s.ball.x + new_ball_velocity(s, Ball_type.main_ball).dx,
-              y: s.ball.y + new_ball_velocity(s, Ball_type.main_ball).dy,
+              x: s.ball.x + new_ball_velocity(s, Ball_type.main_ball).dx(),
+              y: s.ball.y + new_ball_velocity(s, Ball_type.main_ball).dy(),
               velocity: new_ball_velocity(s, Ball_type.main_ball),
             }
             : null,
@@ -681,51 +723,63 @@ function move_heuristic_ball_tick_function(s: State): State {
 
 // TODO break this a little
 function move_ball_tick_function(s: State): State {
-  if ((s.ball.x > 562 || s.ball.x < 34) && !check_collision_with_both_paddle(s)) {
+  if ((s.ball.x > 560 || s.ball.x < 40) && !check_collision_with_both_paddle(s)) {
     return {
       ...s,
       // generates a new ball at a random location with random angle but init magnitude
       ball: {
         ...s.ball,
-        x: randn_bm(s.meta_state.rand_seed + 10, 50, 100),
-        y: randn_bm(s.meta_state.rand_seed + 11, 50, 100),
+        x: randn_bm(s.meta_state.rand_seed + 10, 50, 200),
+        y: randn_bm(s.meta_state.rand_seed + 11, 50, 200),
         velocity: new Vector(
           initial_ball_State.velocity.magnitude,
           psudo_randm(s.meta_state.rand_seed + 13)
         ),
       },
+      meta_state: {
+        ...s.meta_state,
+        score_has_updated: false,
+      }
     };
   } else {
     return {
       ...s,
       ball: {
         ...s.ball,
-        x: s.ball.x + new_ball_velocity(s, Ball_type.main_ball).dx,
-        y: s.ball.y + new_ball_velocity(s, Ball_type.main_ball).dy,
+        x: s.ball.x + new_ball_velocity(s, Ball_type.main_ball).dx(),
+        y: s.ball.y + new_ball_velocity(s, Ball_type.main_ball).dy(),
         velocity: new_ball_velocity(s, Ball_type.main_ball),
       },
     };
   }
 }
 
+
+
 function move_power_ball_tick_function(s: State): State {
   return {
     ...s,
     power_up_ball: {
       ...s.power_up_ball,
-      x: s.power_up_ball.x + get_new_power_ball_velocity(s).dx,
-      y: s.power_up_ball.y + get_new_power_ball_velocity(s).dy,
+      x: s.power_up_ball.x + get_new_power_ball_velocity(s).dx(),
+      y: s.power_up_ball.y + get_new_power_ball_velocity(s).dy(),
       velocity: get_new_power_ball_velocity(s),
     },
   };
 }
 
 function update_score_tick_function(s: State): State {
-  return {
-    ...s,
-    player_score: s.ball.x > 562 ? s.player_score + 1 : s.player_score,
-    ai_score: s.ball.x < 34 ? s.ai_score + 1 : s.ai_score,
-  };
+  if (!s.meta_state.score_has_updated && (s.ball.x > 562 || s.ball.x < 40)) {
+    return {
+      ...s,
+      player_score: s.ball.x > 562 ? s.player_score + 1 : s.player_score,
+      ai_score: s.ball.x < 40 ? s.ai_score + 1 : s.ai_score,
+      meta_state: {
+        ...s.meta_state,
+        score_has_updated: true,
+      }
+    };
+  } return s
 }
 
 function check_for_last_hit(s: State): State {
@@ -734,6 +788,7 @@ function check_for_last_hit(s: State): State {
       ...s,
       meta_state: {
         ...s.meta_state,
+        score_has_updated: false,
         last_hit: Player_type.AI
       }
     }
@@ -742,6 +797,7 @@ function check_for_last_hit(s: State): State {
       ...s,
       meta_state: {
         ...s.meta_state,
+        score_has_updated: false,
         last_hit: Player_type.CONTROLLED_PLAYER
       }
     }
@@ -816,7 +872,7 @@ function return_random_power_up(s: State): power_up_type {
   if (rand_num < 0.25) {
     return power_up_type.expand;
   } else if (rand_num > 0.25 && rand_num < 0.50) {
-    return power_up_type.health;
+    return power_up_type.fast_ball;
   } else if (rand_num > 0.50 && rand_num < 0.75) {
     return power_up_type.speed;
   } else if (rand_num > 0.75) {
@@ -898,26 +954,26 @@ const active_power_up_tick: (p: Player_type) => (s: State) => State = (
   return s;
 };
 
-const health_power_up_function: (p: Player_type) => (s: State) => State = (
+
+
+
+const fastball_power_up_function: (p: Player_type) => (s: State) => State = (
   p: Player_type
 ) => (s: State) => {
   const active_power_up_o =
     p === Player_type.AI
       ? s.ai_paddle.activated_power_up
       : s.player_state.activated_power_up;
-  if (active_power_up_o.power_up_t === power_up_type.health) {
-    if (p === Player_type.AI) {
-      return {
-        ...s,
-        player_score: s.player_score - 1,
-      };
-    } else {
-      return {
-        ...s,
-        ai_score: s.ai_score - 1,
-      };
-    }
-  } else return s;
+  if (active_power_up_o.power_up_t === power_up_type.fast_ball) {
+    return {
+      ...s,
+      ball: {
+        ...s.ball,
+        velocity: active_power_up_o.duration_left > game_constants.POWERUP_TIME - 1 ? new Vector(s.ball.velocity.magnitude * 4, s.ball.velocity.angle) : s.ball.velocity,
+      },
+    };
+  }
+  return s;
 };
 
 const speed_power_up_function: (p: Player_type) => (s: State) => State = (
@@ -1040,7 +1096,7 @@ const active_power_up_effect_tick: (p: Player_type) => (s: State) => State = (
     const power_up_tick_functions: Array<(
       p: Player_type
     ) => (s: State) => State> = [
-        health_power_up_function,
+        fastball_power_up_function,
         speed_power_up_function,
         expand_power_up_function,
         return_power_up_function,
@@ -1422,7 +1478,7 @@ function clear_powerup_box(): void {
   };
 
   // Every power_up icon will be hidden
-  [power_up_type.expand, power_up_type.health, power_up_type.return, power_up_type.speed].forEach(disable_power_up_element);
+  [power_up_type.expand, power_up_type.fast_ball, power_up_type.return, power_up_type.speed].forEach(disable_power_up_element);
 }
 
 // Runs all three menu functions to display the menu based on each desired condition
@@ -1469,7 +1525,7 @@ function updateView(state: State): void {
 
     const update_functions: Array<(State) => void> = [update_all_entity, activate_powerup_element, power_ball_show, show_power_up_holding_player, activate_ai_powerup_symbol, activate_ai_powerup_symbol, update_both_score]
 
-    apply_value_to_all(update_functions, state)
+    forEachFuncs(update_functions, state)
 
   } else if (!state.meta_state.has_started) {
     resetWinText();
