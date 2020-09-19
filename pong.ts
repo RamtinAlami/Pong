@@ -97,8 +97,8 @@ type State = Readonly<{
   ai_paddle: ai_state;
   ball: ball_state;
   power_up_ball: power_up_ball_state;
-  player_score: number;
   ai_score: number;
+  player_score: number;
   meta_state: Meta_State;
 }>;
 
@@ -136,8 +136,10 @@ class Vector {
    * @param strength This is the amount the vector will changed after reflection
    */
   x_reflect_paddle: (strength: number) => Vector = (strength: number) => {
-    const new_mag = this.magnitude * (strength + 0.6);
-    const new_angle = this.angle + strength * 0.5;
+    // we take the half of absolute of the strength thus making the range [0,0.5] and also we add 0.8 because we don't want the speed to drop too much at the middle
+    // The overall range of magnitude will be [0.9, 1.4] * original magnitude
+    const new_mag = this.magnitude * (Math.abs(strength) / 2 + 0.9);
+    const new_angle = strength;
     return new Vector(-new_mag, -new_angle);
   };
 }
@@ -207,8 +209,8 @@ const initialState: State = {
   player_state: initial_player_state,
   ai_paddle: initial_ai_state,
   ball: initial_ball_State,
-  player_score: 0,
   ai_score: 0,
+  player_score: 0,
   meta_state: initial_meta_state,
   power_up_ball: initial_pb_state,
 };
@@ -449,8 +451,8 @@ const get_paddle_range = (Paddle_owner: Player_type) => (s: State) => {
  * @param s The current game state
  */
 const prediction_deviation: (s: State) => number = (s: State) => {
-  const player_help = 0.5 * (1 / (1 + Math.exp(s.ai_score - 4))) + 0.05; // as the player scores they get less help
-  const ai_help = 0.35 * (1 / (1 + Math.exp(-s.player_score + 4))); // as the player scores they get less help
+  const player_help = 0.5 * (1 / (1 + Math.exp(s.player_score - 4))) + 0.05; // as the player scores they get less help
+  const ai_help = 0.35 * (1 / (1 + Math.exp(-s.ai_score + 4))); // as the player scores they get less help
   const variance = (player_help + ai_help) * (90 / s.meta_state.difficulty); // 1, 2 or 3
   const generated_number = randn_bm(s.meta_state.rand_seed, variance, 0);
   return generated_number;
@@ -732,7 +734,7 @@ function move_heuristic_ball_tick_function(s: State): State {
 
 // TODO break this a little
 function move_ball_tick_function(s: State): State {
-  if ((s.ball.x > 560 || s.ball.x < 40) && !check_collision_with_both_paddle(s)) {
+  if ((s.ball.x >= game_constants.MAX_X - 30 || s.ball.x <= 30)) {
     return {
       ...s,
       // generates a new ball at a random location with random angle but init magnitude
@@ -778,11 +780,11 @@ function move_power_ball_tick_function(s: State): State {
 }
 
 function update_score_tick_function(s: State): State {
-  if (!s.meta_state.score_has_updated && (s.ball.x > 562 || s.ball.x < 40)) {
+  if (!s.meta_state.score_has_updated && (s.ball.x > 562 || s.ball.x < 38)) {
     return {
       ...s,
-      player_score: s.ball.x > 562 ? s.player_score + 1 : s.player_score,
-      ai_score: s.ball.x < 40 ? s.ai_score + 1 : s.ai_score,
+      ai_score: s.ball.x > 562 ? s.ai_score + 1 : s.ai_score,
+      player_score: s.ball.x < 38 ? s.player_score + 1 : s.player_score,
       meta_state: {
         ...s.meta_state,
         score_has_updated: true,
@@ -1013,7 +1015,7 @@ const speed_power_up_function: (p: Player_type) => (s: State) => State = (
           paddle: {
             ...s.ai_paddle.paddle,
             // if ending soon then set back to normal
-            speed: active_power_up_o.duration_left > 1 ? 4 : 1,
+            speed: active_power_up_o.duration_left > 1 ? 10 : initial_ai_paddle_state.speed,
           },
         },
       };
@@ -1089,7 +1091,8 @@ const get_paddle_contact_strength: (p: Player_type) => (s: State) => number = (
 
   const ball_y: number = s.ball.y;
 
-  const dist_to_center = Math.abs(paddle_center - ball_y) / (paddle_size / 2)
+  // a number in the range of [-1,1], the absolute value is how far from the center the ball hits, the sign is which direction it hits.
+  const dist_to_center = (paddle_center - ball_y) / (paddle_size / 2)
   return dist_to_center;
 };
 
@@ -1119,7 +1122,7 @@ const active_power_up_effect_tick: (p: Player_type) => (s: State) => State = (
 
 // HERE BECAUSE WE NEED TO HAVE ABSTRACTION
 function check_end_game_tick_function(s: State): State {
-  const game_ended: boolean = s.player_score >= 7 || s.ai_score >= 7;
+  const game_ended: boolean = s.ai_score >= 7 || s.player_score >= 7;
   return {
     ...s,
     meta_state: {
@@ -1182,7 +1185,7 @@ function ball_collide_with_paddle(
 
   // TODO change those to constants for checking
   const x_line_has_passed =
-    Paddle_owner === Player_type.AI ? s.ball.x <= 40 : s.ball.x >= 560;
+    Paddle_owner === Player_type.AI ? s.ball.x <= 41 : s.ball.x >= 559;
 
   // To make sure that even the edge of the ball can make contact, we will add ball size to the range when checking for contact
   const y_collided = s.ball.y >= min - ball_size && s.ball.y <= max + ball_size;
@@ -1234,12 +1237,12 @@ function new_ball_velocity(s: State, ball_type: Ball_type): Vector {
     check_collision_with_both_paddle(s)
   ) {
     if (ball_collide_with_paddle(Player_type.AI, s)) {
-      return velocity.x_reflect_paddle(get_paddle_contact_strength(Player_type.AI)(s));
+      return velocity.x_reflect_paddle(get_paddle_contact_strength(Player_type.AI)(s))
     } else if (ball_collide_with_paddle(Player_type.CONTROLLED_PLAYER, s)) {
 
-      return velocity.x_reflect_paddle(get_paddle_contact_strength(Player_type.CONTROLLED_PLAYER)(s));
+      return velocity.x_reflect();
     }
-    return velocity.x_reflect();
+    return velocity.x_reflect_paddle(get_paddle_contact_strength(Player_type.CONTROLLED_PLAYER)(s));
   }
   else if (y_pos <= ball_size || y_pos >= game_constants.MAX_Y - ball_size)
     return velocity.y_reflect();
@@ -1343,7 +1346,7 @@ const update_entity: (
 const get_side_score: (s: State) => (side: Player_type) => number = (
   s: State
 ) => (side: Player_type) => {
-  return side === Player_type.CONTROLLED_PLAYER ? s.player_score : s.ai_score;
+  return side === Player_type.CONTROLLED_PLAYER ? s.ai_score : s.player_score;
 };
 
 // We will use this function to return the prefix of the score bubble id in the html
@@ -1496,7 +1499,7 @@ function display_all_menus(state: State): void {
     MenuType.PauseMenu,
     state.meta_state.is_paused &&
     state.meta_state.has_started &&
-    !(state.ai_score >= game_constants.MAX_SCORE || state.player_score >= game_constants.MAX_SCORE)
+    !(state.player_score >= game_constants.MAX_SCORE || state.ai_score >= game_constants.MAX_SCORE)
   );
 
   displayMenu(
@@ -1507,7 +1510,7 @@ function display_all_menus(state: State): void {
   displayMenu(
     MenuType.EndMenu,
     state.meta_state.is_paused &&
-    (state.ai_score >= game_constants.MAX_SCORE || state.player_score >= game_constants.MAX_SCORE)
+    (state.player_score >= game_constants.MAX_SCORE || state.ai_score >= game_constants.MAX_SCORE)
   );
 }
 
@@ -1540,7 +1543,7 @@ function updateView(state: State): void {
     resetWinText();
     reset_score();
   } else if (state.meta_state.has_ended) {
-    updateWinText(state.player_score < state.ai_score);
+    updateWinText(state.ai_score < state.player_score);
   }
 }
 
