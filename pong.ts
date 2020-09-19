@@ -106,12 +106,21 @@ type State = Readonly<{
  * The will be a vector and it has several methods that will be used for ball mechanics
  */
 class Vector {
+  public readonly dx: number;
+  public readonly dy: number;
+
+  /**
+   * The constructor for the vector class
+   * @param magnitude The magnitude of the vector
+   * @param angle The angle in radians
+   */
   constructor(
     public readonly magnitude: number = 0,
     public readonly angle: number = 0
-  ) { }
-  dx: () => number = () => this.magnitude * Math.cos(this.angle)
-  dy: () => number = () => this.magnitude * Math.cos(this.angle)
+  ) {
+    this.dx = magnitude * Math.cos(angle);
+    this.dy = magnitude * Math.sin(angle);
+  }
   scale: (scale: number) => Vector = (scale: number) => new Vector(this.magnitude * scale, this.angle);
 
   // This will reflect the vector along the x axis
@@ -703,17 +712,17 @@ function move_heuristic_ball_tick_function(s: State): State {
               ...s.ai_paddle.heuristic_ball,
               x:
                 s.ai_paddle.heuristic_ball.x +
-                new_ball_velocity(s, Ball_type.heuristic_ball).dx() * 2,
+                new_ball_velocity(s, Ball_type.heuristic_ball).dx * 2,
               y:
                 s.ai_paddle.heuristic_ball.y +
-                new_ball_velocity(s, Ball_type.heuristic_ball).dy() * 2,
+                new_ball_velocity(s, Ball_type.heuristic_ball).dy * 2,
               velocity: new_ball_velocity(s, Ball_type.heuristic_ball),
             }
           : ball_collide_with_paddle(Player_type.CONTROLLED_PLAYER, s)
             ? {
               ...s.ball,
-              x: s.ball.x + new_ball_velocity(s, Ball_type.main_ball).dx(),
-              y: s.ball.y + new_ball_velocity(s, Ball_type.main_ball).dy(),
+              x: s.ball.x + new_ball_velocity(s, Ball_type.main_ball).dx,
+              y: s.ball.y + new_ball_velocity(s, Ball_type.main_ball).dy,
               velocity: new_ball_velocity(s, Ball_type.main_ball),
             }
             : null,
@@ -746,8 +755,8 @@ function move_ball_tick_function(s: State): State {
       ...s,
       ball: {
         ...s.ball,
-        x: s.ball.x + new_ball_velocity(s, Ball_type.main_ball).dx(),
-        y: s.ball.y + new_ball_velocity(s, Ball_type.main_ball).dy(),
+        x: s.ball.x + new_ball_velocity(s, Ball_type.main_ball).dx,
+        y: s.ball.y + new_ball_velocity(s, Ball_type.main_ball).dy,
         velocity: new_ball_velocity(s, Ball_type.main_ball),
       },
     };
@@ -761,8 +770,8 @@ function move_power_ball_tick_function(s: State): State {
     ...s,
     power_up_ball: {
       ...s.power_up_ball,
-      x: s.power_up_ball.x + get_new_power_ball_velocity(s).dx(),
-      y: s.power_up_ball.y + get_new_power_ball_velocity(s).dy(),
+      x: s.power_up_ball.x + get_new_power_ball_velocity(s).dx,
+      y: s.power_up_ball.y + get_new_power_ball_velocity(s).dy,
       velocity: get_new_power_ball_velocity(s),
     },
   };
