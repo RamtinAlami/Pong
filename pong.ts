@@ -401,7 +401,6 @@ function randn_bm(seed: number, variance: number, mean: number): number {
  * @param y The y position of the mouse cursor
  */
 function button_click_check(x: number, y: number): number {
-  console.log(x, y)
   if (x > 173 && x < 443) {
     if (y > 347 && y < 407) {
       return 1;
@@ -780,12 +779,15 @@ function move_power_ball_tick_function(s: State): State {
   };
 }
 
+
+// TODO ADD COMMENT HERE EXPLAINING THE OVERSHOOT AND ETC...
 function update_score_tick_function(s: State): State {
-  if (!s.meta_state.score_has_updated && (s.ball.x > 562 || s.ball.x < 38)) {
+  console.log(s.meta_state.score_has_updated)
+  if (!s.meta_state.score_has_updated && !check_collision_with_both_paddle(s) && (s.ball.x > 562 || s.ball.x < 38)) {
     return {
       ...s,
-      ai_score: s.ball.x > 562 ? s.ai_score + 1 : s.ai_score,
-      player_score: s.ball.x < 38 ? s.player_score + 1 : s.player_score,
+      ai_score: s.ball.x > 560 ? s.ai_score + 1 : s.ai_score,
+      player_score: s.ball.x < 32 ? s.player_score + 1 : s.player_score,
       meta_state: {
         ...s.meta_state,
         score_has_updated: true,
@@ -800,7 +802,6 @@ function check_for_last_hit(s: State): State {
       ...s,
       meta_state: {
         ...s.meta_state,
-        score_has_updated: false,
         last_hit: Player_type.AI
       }
     }
@@ -809,7 +810,6 @@ function check_for_last_hit(s: State): State {
       ...s,
       meta_state: {
         ...s.meta_state,
-        score_has_updated: false,
         last_hit: Player_type.CONTROLLED_PLAYER
       }
     }
