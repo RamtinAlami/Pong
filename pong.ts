@@ -106,6 +106,7 @@ type State = Readonly<{
  * The will be a vector and it has several methods that will be used for ball mechanics
  */
 class Vector {
+  // Even though they are declared and then set in the constructor, they are still considered immutable as after the construction, they can not be changed any outside that scope
   public readonly dx: number;
   public readonly dy: number;
 
@@ -133,7 +134,7 @@ class Vector {
    * This is similar to x_reflect; however, it will be used for paddles to change
    * the magnitude and angle based on "strength" which determined by which part of the paddle
    * collides with the ball.
-   * @param strength This is the amount the vector will changed after reflection
+   * @param strength This is the amount the vector will changed after reflection, this value will be in the range [-1,1], indicating how from the center the ball hits
    */
   x_reflect_paddle: (strength: number) => Vector = (strength: number) => {
     // we take the half of absolute of the strength thus making the range [0,0.5] and also we add 0.8 because we don't want the speed to drop too much at the middle
@@ -205,6 +206,7 @@ const initial_pb_state: power_up_ball_state = {
   ms_left_visible: 0,
 };
 
+
 const initialState: State = {
   player_state: initial_player_state,
   ai_paddle: initial_ai_state,
@@ -236,8 +238,8 @@ const enum Player_type {
 }
 
 // The following class are the event classes that will be constructed by keyboard down
-// Classes are created because they store a value
-// TODO complete this ^
+// Classes are created because they store a value and simple types wouldn't sufficed
+// TODO add more detailed explaination
 class Tick {
   constructor(public readonly elapsed: number) { }
 }
@@ -312,6 +314,7 @@ const EndPowerUpUse = observeKey(
 );
 
 // Esc button for pausing the game
+// There will not be a keyup as very time the user presses the button, the game pause state swaps and thus the pause action does not need to be reverted on keyup
 const PauseGame = observeKey("keydown", "Escape", () => new pause());
 
 /**
@@ -330,17 +333,7 @@ const observeMouse = <T>(result: (clientX: number, clientY: number) => T) =>
 const mouseObs = observeMouse((x, y) => new mouse_click(x, y));
 
 
-// SOME HELPER FUNCTIONS FOR THE REST
-
-/**
- * This function produces pseudo random numbers based on a seed.
- * Linear congruential generator is utilized.
- * This function is primally been taken from FIT2102's observables.ts file
- * @param seed The seed that will used to generate the number
- */
-const psudo_randm: (seed: number) => number = (seed: number) => {
-  return ((1103515245 * seed + 12345) % 0x80000000) / (0x80000000 - 1);
-};
+// SOME HELPER FUNCTIONS FOR THE REST OF THE CODE
 
 /**
  * Function implements a pipe function to apply a series of functions to an input value similar to rxjs's pipe
@@ -351,6 +344,8 @@ function pipeFuncs<T>(funcs: Array<(T) => T>, starting_v: T): T {
   return funcs.reduce((curr_v, f) => f(curr_v), starting_v)
 }
 
+// The following two functions are the basic functional programming functions; however, in reverse, instead of one function taking many values, many functions are applied to one value
+// We did not absolutely need the following two functions as their actions are very small; however, it improves readability and helps in debugging
 
 /**
  * Function implements a reverse map function, where a lot of functions are mapped to a single value
@@ -373,6 +368,17 @@ function forEachFuncs<T, V>(funcs: Array<(T) => V>, value: T): void {
 }
 
 /**
+ * This function produces pseudo random numbers based on a seed.
+ * Linear congruential generator is utilized.
+ * This function is primally been taken from FIT2102's observables.ts file
+ * @param seed The seed that will used to generate the number
+ */
+const psudo_randm: (seed: number) => number = (seed: number) => {
+  return ((1103515245 * seed + 12345) % 0x80000000) / (0x80000000 - 1);
+};
+
+
+/**
  * Generates "almost a" Normally distributed number based on input variance and mean
  * The function is based on the Box-Muller transform
  * This function is not perfect as Box-Muller requires two random with the range of (0,1); however provided with [0,1) which would make the output imperfect but still alright for
@@ -391,6 +397,18 @@ function randn_bm(seed: number, variance: number, mean: number): number {
   const X = variance * Z + mean;
   return X;
 }
+
+/**
+ * Sets the starting random seed to the mouse x + mouse y
+ * This function is ran at the start to have different seeds for games while keeping the random number generators pure
+ * @param s The input state that will create the new state with update seed
+ * @param x The x position of the mouse cursor
+ * @param y The y position of the mouse cursor
+ */
+function set_seed(s: State, x: number, y: number): State {
+  return { ...s, meta_state: { ...s.meta_state, rand_seed: x + y } };
+}
+
 
 /**
  * Function returns a number of the selected button
@@ -412,18 +430,6 @@ function button_click_check(x: number, y: number): number {
   }
   return 0;
 }
-
-/**
- * Sets the starting random seed to the mouse x + mouse y
- * This function is ran at the start to have different seeds for games while keeping the random number generators pure
- * @param s The input state that will create the new state with update seed
- * @param x The x position of the mouse cursor
- * @param y The y position of the mouse cursor
- */
-function set_seed(s: State, x: number, y: number): State {
-  return { ...s, meta_state: { ...s.meta_state, rand_seed: x + y } };
-}
-
 
 /**
  * Given a player type, it will return the position of the two ends of the paddle
@@ -621,23 +627,9 @@ function activate_power_ball(s: State, e: use_power_up): State {
 
 // The following functions will be used in the tick function that is the game steps
 
-const move_player_tick_function: (s: State) => State = (s: State) => {
-  const new_player_y: number = get_new_player_y(
-    s.player_state.paddle.direction
-  )(s);
-  return {
-    ...s,
-    player_state: {
-      ...s.player_state,
-      paddle: {
-        ...s.player_state.paddle,
-        y: new_player_y,
-      },
-    },
-  };
-};
 
-// returns a number between 0-600 based on new target_y
+// returns a number between 0-600 based on new target_y for the ai
+// We are using a different get_y functions for player and ai because they way they decide is very different and we couldn't have reused the same function for the getter 
 function get_new_ai_y(curr_y, target_y, paddle_speed): number {
   // since we can't get perfect, it aims to be in the range of speed
   if (Math.abs(curr_y - target_y) <= paddle_speed) return curr_y;
@@ -645,48 +637,67 @@ function get_new_ai_y(curr_y, target_y, paddle_speed): number {
   else return curr_y < target_y ? curr_y + paddle_speed : curr_y - paddle_speed;
 }
 
-// finds the new y
-function move_ai_tick_function(s: State): State {
-  const new_ai_y: number = get_new_ai_y(
+// This function will move the paddles based on type
+// This is a curried function because we need to apply the function on a state value in a pipe
+// We could've separate it into two functions; however, keeping the movement functionality in one place would help in debugging
+const move_player_tick_function: (p: Player_type) => (s: State) => State = (p: Player_type) => (s: State) => {
+  const new_y_pos = p === Player_type.AI ? get_new_ai_y(
     s.ai_paddle.paddle.y,
     s.ai_paddle.y_target,
     s.ai_paddle.paddle.speed
-  );
-  return {
-    ...s,
-    ai_paddle: {
-      ...s.ai_paddle,
-      paddle: {
-        ...s.ai_paddle.paddle,
-        y: new_ai_y,
+  ) : get_new_player_y(
+    s.player_state.paddle.direction
+  )(s);
+
+  if (p === Player_type.AI) {
+    return {
+      ...s,
+      ai_paddle: {
+        ...s.ai_paddle,
+        paddle: {
+          ...s.ai_paddle.paddle,
+          y: new_y_pos,
+        },
       },
-    },
-  };
-}
+    };
+  } else if (p === Player_type.CONTROLLED_PLAYER) {
+    return {
+      ...s,
+      player_state: {
+        ...s.player_state,
+        paddle: {
+          ...s.player_state.paddle,
+          y: new_y_pos,
+        },
+      },
+    };
+  }
+};
 
-/**
- * Given a y value, it will return 0 or max screen size if goes further
- * @param y The y value that will be bounded to the screen size
- */
-const in_y_range: (y: number) => number = (y: number) =>
-  Math.max(Math.min(y, 540), 0);
-
-const get_y_target = (s: State) => {
+// This function constantly checks if the heuristic ball(a hidden ball that has the same velocity as the main but is hidden), passes the ai's x axis line
+const get_y_target: (s: State) => number = (s: State) => {
   // checks if heuristic ball has been created
   if (s.ai_paddle.heuristic_ball !== null) {
     return s.ai_paddle.heuristic_ball.x < 40
       ? s.ai_paddle.heuristic_ball.y - 40 + prediction_deviation(s)
       : s.ai_paddle.y_target;
   } else {
-    // moves the paddle up after striking which makes the AI seem more real
+    // This is just a random change in the target that happens as the main ball leaves the ai paddle
+    // This is for aesthetics of gameplay, it will make the ai seem more human; it is not really needed
     return s.ball.x < 40
       ? randn_bm(s.meta_state.rand_seed + 3, 250, 300)
       : s.ai_paddle.y_target;
   }
 };
 
+
+// This function will calls the get_y_tagret function and updates the target value on the new state
+// The target is picked based on the heuristic ball
 function find_ai_target_tick_function(s: State): State {
-  const new_player_y: number = in_y_range(get_y_target(s));
+  // this is to make sure the paddle does not go out of the scene, it will max the target by the screen_size + paddle size
+  const max_y_pos = game_constants.MAX_Y - game_constants.STARTING_PADDLE_SIZE * s.ai_paddle.paddle.size;
+  const target_y = get_y_target(s);
+  const new_player_y: number = Math.max(Math.min(target_y, max_y_pos), 0);
   return {
     ...s,
     ai_paddle: {
@@ -697,42 +708,59 @@ function find_ai_target_tick_function(s: State): State {
 }
 
 
-// TODO fix this into smaller ones
-function move_heuristic_ball_tick_function(s: State): State {
-  const new_player_y: number = get_new_player_y(
-    s.player_state.paddle.direction
-  )(s);
-  return {
-    ...s,
-    ai_paddle: {
-      ...s.ai_paddle,
-      heuristic_ball:
-        s.ai_paddle.heuristic_ball !== null
-          ? s.ai_paddle.heuristic_ball.x < 40
-            ? null
-            : {
-              ...s.ai_paddle.heuristic_ball,
-              x:
-                s.ai_paddle.heuristic_ball.x +
-                new_ball_velocity(s, Ball_type.heuristic_ball).dx * 2,
-              y:
-                s.ai_paddle.heuristic_ball.y +
-                new_ball_velocity(s, Ball_type.heuristic_ball).dy * 2,
-              velocity: new_ball_velocity(s, Ball_type.heuristic_ball),
-            }
-          : ball_collide_with_paddle(Player_type.CONTROLLED_PLAYER, s)
-            ? {
-              ...s.ball,
-              x: s.ball.x + new_ball_velocity(s, Ball_type.main_ball).dx,
-              y: s.ball.y + new_ball_velocity(s, Ball_type.main_ball).dy,
-              velocity: new_ball_velocity(s, Ball_type.main_ball),
-            }
-            : null,
-    },
-  };
+// This function creates a heuristic ball if it has not been created and the player launches a ball at the ai
+function create_heuristic_ball_tick_function(s: State): State {
+  if (s.ai_paddle.heuristic_ball === null) {
+    const new_ball_made = ball_collide_with_paddle(Player_type.CONTROLLED_PLAYER, s)
+      ? {
+        ...s.ball,
+        x: s.ball.x + new_ball_velocity(s, Ball_type.main_ball).dx,
+        y: s.ball.y + new_ball_velocity(s, Ball_type.main_ball).dy,
+        velocity: new_ball_velocity(s, Ball_type.main_ball),
+      }
+      : null;
+    return {
+      ...s,
+      ai_paddle: {
+        ...s.ai_paddle,
+        heuristic_ball: new_ball_made
+      },
+    };
+  }
+  return s;
 }
 
-// TODO break this a little
+// this function moves the heuristic ball if it exists
+// The speed is increased so it will arrive at the same path but a lot fast 
+function move_heuristic_ball_tick_function(s: State): State {
+  if (s.ai_paddle.heuristic_ball !== null) {
+    const updated_h_ball = s.ai_paddle.heuristic_ball.x < 40
+      // remove the ball if passes x of 40
+      ? null
+      // if it has been created and it has not passed 40 (not arrived at the other side), update the velocity at a faster rate, so it will be identical to the original ball; however, much quicker
+      // This is to create the illusion that the Ai is thinking and "predicting" the movement
+      : {
+        ...s.ai_paddle.heuristic_ball,
+        x:
+          s.ai_paddle.heuristic_ball.x +
+          new_ball_velocity(s, Ball_type.heuristic_ball).dx * 2,
+        y:
+          s.ai_paddle.heuristic_ball.y +
+          new_ball_velocity(s, Ball_type.heuristic_ball).dy * 2,
+        velocity: new_ball_velocity(s, Ball_type.heuristic_ball),
+      }
+    return {
+
+      ...s,
+      ai_paddle: {
+        ...s.ai_paddle,
+        heuristic_ball: updated_h_ball
+      },
+    };
+  } return s;
+}
+
+// This is the main tick function that is responsible for moving the ball if not out of scene or teleporting the ball in the middle of the game if outed
 function move_ball_tick_function(s: State): State {
   if ((s.ball.x >= game_constants.MAX_X - 30 || s.ball.x <= 30)) {
     return {
@@ -747,12 +775,14 @@ function move_ball_tick_function(s: State): State {
           psudo_randm(s.meta_state.rand_seed + 13)
         ),
       },
+      // Updates the state to indicate the change of scoring again upon update
       meta_state: {
         ...s.meta_state,
         score_has_updated: false,
       }
     };
   } else {
+    // we will normally update the ball if it is in game
     return {
       ...s,
       ball: {
@@ -766,7 +796,8 @@ function move_ball_tick_function(s: State): State {
 }
 
 
-
+// This tick functions moves, the positions of the ball based on the velocity
+// a check for the velocity is also made where a need for change is occured, it is check in get_new_power_ball_velocity and the velocity is updated
 function move_power_ball_tick_function(s: State): State {
   return {
     ...s,
@@ -781,13 +812,15 @@ function move_power_ball_tick_function(s: State): State {
 
 
 // TODO ADD COMMENT HERE EXPLAINING THE OVERSHOOT AND ETC...
+// score_has_updated is a variable which has also been changed, to avoid double ups in counting as sometimes if the ball is too slow or too fast, two scores are counted as the position of the ball isn't updated instantly when it goes out. This has been done because if the update has been completely instant, it looked odd. Furthermore, this check avoids other bugs as well
+// The check for collision is also made because if the ball has too high of a velocity, it might be updated beyond the boundary of the paddle. This boundary issue isn't a deal when game play as the bounce still occurs and the position of the ball hasn't been reset; however, it might double up the count
 function update_score_tick_function(s: State): State {
   console.log(s.meta_state.score_has_updated)
   if (!s.meta_state.score_has_updated && !check_collision_with_both_paddle(s) && (s.ball.x > 562 || s.ball.x < 38)) {
     return {
       ...s,
-      ai_score: s.ball.x > 560 ? s.ai_score + 1 : s.ai_score,
-      player_score: s.ball.x < 32 ? s.player_score + 1 : s.player_score,
+      player_score: s.ball.x > 560 ? s.ai_score + 1 : s.ai_score,
+      ai_score: s.ball.x < 38 ? s.player_score + 1 : s.player_score,
       meta_state: {
         ...s.meta_state,
         score_has_updated: true,
@@ -796,6 +829,8 @@ function update_score_tick_function(s: State): State {
   } return s
 }
 
+// This function returns a new state with an updated last_hit
+// The last hit is used for deciding who has hit the power_up box and giving the power_up to the right player
 function check_for_last_hit(s: State): State {
   if (ball_collide_with_paddle(Player_type.AI, s)) {
     return {
@@ -818,7 +853,9 @@ function check_for_last_hit(s: State): State {
   }
 }
 
-
+// Since our random functions are pure, the seed needs to be manually changed to make the game feel less predictable and more fun
+// The game_constants.MAX_RAND_NUM_GET is the maximum number of calls to random that will be made so we skip by that much
+// Every time a random function is called, a number between [0,game_constants.MAX_RAND_NUM_GET] is added to make the game feel more random; however, after a full iteration of the tick function, the whole seed needs to be updated in the returned state so all the generated numbers will be different
 function update_seed_tick_function(s: State): State {
   return {
     ...s,
@@ -829,6 +866,7 @@ function update_seed_tick_function(s: State): State {
   };
 }
 
+// This function will check if the player has activated their powerup(pressed space) and has a powerup holding. If both cases are true, the holding power_up is nullified and a new powerup class is initialized in the returned state for the input player that will be checked on
 const check_if_player_power_up_activated: (p: Player_type) => (s: State) => State = (p: Player_type) => (s: State) => {
   const has_activated: boolean = p === Player_type.AI ? psudo_randm(s.meta_state.rand_seed + 50) < 0.001 : s.meta_state.power_up_activated;
   const power_up_holding: power_up_type = p === Player_type.AI ? s.ai_paddle.power_up_holding : s.player_state.power_up_holding;
@@ -863,8 +901,7 @@ const check_if_player_power_up_activated: (p: Player_type) => (s: State) => Stat
 }
 
 
-
-// TODO ADD COMMENT
+// This function checks if the ball has collided with power_up ball/box and returns a boolean indicating so
 function ball_collision_ball(s: State): boolean {
   const ball_x: number = s.ball.x;
   const ball_y: number = s.ball.y;
@@ -873,12 +910,13 @@ function ball_collision_ball(s: State): boolean {
 
 
   const y_in_range: boolean = ball_y >= pb_y && ball_y <= pb_y + game_constants.STARTING_PBALL_SIZE;
-
   const x_in_range: boolean = ball_x >= pb_x && ball_x <= pb_x + game_constants.STARTING_PBALL_SIZE;
 
   return y_in_range && x_in_range && s.power_up_ball.is_active;
 }
 
+// when the ball collision with the power_u ball/box has occurred a random power_up is required to be given to the side that has hit the ball
+// This function will randomly pick a powerup and returns a power_up_type
 function return_random_power_up(s: State): power_up_type {
   const rand_num = psudo_randm(s.meta_state.rand_seed + 40)
   if (rand_num < 0.25) {
@@ -893,6 +931,8 @@ function return_random_power_up(s: State): power_up_type {
   return power_up_type.none;
 }
 
+
+// This function uses the two above functions to constantly check if a side has hit and if yet, it will assign a random power_up to a side
 function check_pb_interaction_tick(s: State): State {
   if (ball_collision_ball(s)) {
     if (s.meta_state.last_hit === Player_type.AI && s.ai_paddle.power_up_holding === power_up_type.none) {
@@ -924,6 +964,10 @@ function check_pb_interaction_tick(s: State): State {
   return s;
 }
 
+
+// This will randomly activate (show + make capture capable) for the power_up box
+// the function will active if a uniformly randomly picked number between 0-1 is less than 0.0001
+// thus meaning the probability of power_up showing at a given tick is 0.0001, thus it is expected to appear once every 10000 ticks (GEO(0.0001))
 function appear_pb_on_screen_tick(s: State): State {
   return {
     ...s,
@@ -934,7 +978,8 @@ function appear_pb_on_screen_tick(s: State): State {
   }
 }
 
-// Curried function because we are going call for different players
+// This function runs the tick function on the active power up which would return a new powerup object with decremented time
+// Curried function because we are going call for different players on our pipefunction
 const active_power_up_tick: (p: Player_type) => (s: State) => State = (
   p: Player_type
 ) => (s: State) => {
@@ -967,8 +1012,9 @@ const active_power_up_tick: (p: Player_type) => (s: State) => State = (
 };
 
 
-
-
+// This is the tick option for fastball power up, it will apply the required modifications
+// This power up increases the speed of the ball
+// Curried function because we are going call for different players on our pipefunction
 const fastball_power_up_function: (p: Player_type) => (s: State) => State = (
   p: Player_type
 ) => (s: State) => {
@@ -981,6 +1027,7 @@ const fastball_power_up_function: (p: Player_type) => (s: State) => State = (
       ...s,
       ball: {
         ...s.ball,
+        // for one tick we return a new vector for ball with the same angle but four times the magnitude
         velocity: active_power_up_o.duration_left > game_constants.POWERUP_TIME - 1 ? new Vector(s.ball.velocity.magnitude * 4, s.ball.velocity.angle) : s.ball.velocity,
       },
     };
@@ -988,6 +1035,10 @@ const fastball_power_up_function: (p: Player_type) => (s: State) => State = (
   return s;
 };
 
+
+// This is the tick option for fastball power up, it will apply the required modifications
+// This power up increases the paddle movement speed for the powerup time
+// Curried function because we are going call for different players on our pipefunction
 const speed_power_up_function: (p: Player_type) => (s: State) => State = (
   p: Player_type
 ) => (s: State) => {
@@ -1025,6 +1076,9 @@ const speed_power_up_function: (p: Player_type) => (s: State) => State = (
   return s;
 };
 
+// This is the tick option for expand power up, it will apply the required modifications
+// This power up increases the paddle size for the powerup time
+// Curried function because we are going call for different players on our pipefunction
 const expand_power_up_function: (p: Player_type) => (s: State) => State = (
   p: Player_type
 ) => (s: State) => {
@@ -1063,6 +1117,9 @@ const expand_power_up_function: (p: Player_type) => (s: State) => State = (
   return s;
 };
 
+// This is the tick option for return power up, it will apply the required modifications
+// This power up will return the ball mid flight at any time
+// Curried function because we are going call for different players on our pipefunction
 const return_power_up_function: (p: Player_type) => (s: State) => State = (
   p: Player_type
 ) => (s: State) => {
@@ -1082,21 +1139,8 @@ const return_power_up_function: (p: Player_type) => (s: State) => State = (
   return s;
 };
 
-const get_paddle_contact_strength: (p: Player_type) => (s: State) => number = (
-  p: Player_type
-) => (s: State) => {
-  const paddle_state: Paddle_state = p === Player_type.AI ? s.ai_paddle.paddle : s.player_state.paddle;
-  const paddle_y: number = paddle_state.y;
-  const paddle_size: number = paddle_state.size * game_constants.STARTING_PADDLE_SIZE;
-  const paddle_center: number = paddle_y + (paddle_size / 2)
-
-  const ball_y: number = s.ball.y;
-
-  // a number in the range of [-1,1], the absolute value is how far from the center the ball hits, the sign is which direction it hits.
-  const dist_to_center = (paddle_center - ball_y) / (paddle_size / 2)
-  return dist_to_center;
-};
-
+// This function will apply every powerup tick function to input player
+// If the player doesn't have the powerup as active, it will return the same state and nothing will check
 const active_power_up_effect_tick: (p: Player_type) => (s: State) => State = (
   p: Player_type
 ) => (s: State) => {
@@ -1121,7 +1165,24 @@ const active_power_up_effect_tick: (p: Player_type) => (s: State) => State = (
   return s;
 };
 
-// HERE BECAUSE WE NEED TO HAVE ABSTRACTION
+// This function will return a number between [-1,1] which is the distance to the center
+// The further away, the higher the number
+const get_paddle_contact_strength: (p: Player_type) => (s: State) => number = (
+  p: Player_type
+) => (s: State) => {
+  const paddle_state: Paddle_state = p === Player_type.AI ? s.ai_paddle.paddle : s.player_state.paddle;
+  const paddle_y: number = paddle_state.y;
+  const paddle_size: number = paddle_state.size * game_constants.STARTING_PADDLE_SIZE;
+  const paddle_center: number = paddle_y + (paddle_size / 2)
+
+  const ball_y: number = s.ball.y;
+
+  // a number in the range of [-1,1], the absolute value is how far from the center the ball hits, the sign is which direction it hits.
+  const dist_to_center = (paddle_center - ball_y) / (paddle_size / 2)
+  return dist_to_center;
+};
+
+// This function sets all rhe required completion states for the game end
 function check_end_game_tick_function(s: State): State {
   const game_ended: boolean = s.ai_score >= 7 || s.player_score >= 7;
   return {
@@ -1134,17 +1195,18 @@ function check_end_game_tick_function(s: State): State {
   };
 }
 
-
+// This is the tick function that runs all the other tick functions at each iteration of the game
 function Tick_func(s: State, e: EventType): State {
   const tick_functions: Array<(s: State) => State> = [
-    move_player_tick_function,
-    move_ai_tick_function,
+    move_player_tick_function(Player_type.CONTROLLED_PLAYER),
+    move_player_tick_function(Player_type.AI),
     active_power_up_effect_tick(Player_type.CONTROLLED_PLAYER),
     active_power_up_effect_tick(Player_type.AI),
     active_power_up_tick(Player_type.AI),
     active_power_up_tick(Player_type.CONTROLLED_PLAYER),
     find_ai_target_tick_function,
     move_heuristic_ball_tick_function,
+    create_heuristic_ball_tick_function,
     move_ball_tick_function,
     move_power_ball_tick_function,
     update_score_tick_function,
@@ -1165,7 +1227,7 @@ function Tick_func(s: State, e: EventType): State {
   return new_state;
 }
 
-
+// reduce state is main game logic runner that is ran in the rxjs's scan function
 const reduceState = (s: State, e: EventType): State => {
   if (e instanceof mouse_click) return mouse_click_func(s, e);
   else if (e instanceof use_power_up) return activate_power_ball(s, e);
@@ -1176,7 +1238,7 @@ const reduceState = (s: State, e: EventType): State => {
   else return s;
 };
 
-// TURN THIS INTO A SMALLER REUSABLE ONE BY COMBINING TWO
+// This functions takes a player type and state and will return true if the ball is touching the paddle of the input player
 function ball_collide_with_paddle(
   Paddle_owner: Player_type,
   s: State
@@ -1184,7 +1246,6 @@ function ball_collide_with_paddle(
   const { min, max } = get_paddle_range(Paddle_owner)(s);
   const ball_size = game_constants.STARTING_BALL_SIZE * s.ball.size;
 
-  // TODO change those to constants for checking
   const x_line_has_passed =
     Paddle_owner === Player_type.AI ? s.ball.x <= 41 : s.ball.x >= 559;
 
@@ -1194,6 +1255,7 @@ function ball_collide_with_paddle(
   return x_line_has_passed && y_collided;
 }
 
+// This function simply tuns the collision checker on both paddles
 function check_collision_with_both_paddle(s: State): boolean {
   return (
     ball_collide_with_paddle(Player_type.AI, s) ||
@@ -1201,31 +1263,23 @@ function check_collision_with_both_paddle(s: State): boolean {
   );
 }
 
-function get_new_power_ball_velocity(s: State): Vector {
-  return s.power_up_ball.x <= 100 || s.power_up_ball.x >= 400
-    ? s.power_up_ball.velocity.x_reflect()
-    : s.power_up_ball.y <= 100 || s.ball.y >= 400
-      ? s.power_up_ball.velocity.y_reflect()
-      : s.power_up_ball.velocity;
-}
-
+// enums for indicating one of the ball types, other ball types can be created and added to the enum
+// the reason for this enum is similar to the previous ones, where it is for mainly readability
 const enum Ball_type {
   main_ball,
-  heuristic_ball,
   power_ball,
+  heuristic_ball
 }
 
-// TODO FIX THIS FOR THE TYPE OF POWERBALL
+// This will take a state and a ball type and it will return a new vector based on the position of the input ball type
+// the new vector could be reflected off the wall or paddles
 function new_ball_velocity(s: State, ball_type: Ball_type): Vector {
   // The following two are not required; however, they make the code cleaner and more readable
-  const is_h_ball = ball_type === Ball_type.heuristic_ball;
   const is_main_ball = ball_type === Ball_type.main_ball;
 
-  const ball_state = is_h_ball
-    ? s.ai_paddle.heuristic_ball
-    : is_main_ball
-      ? s.ball
-      : s.power_up_ball;
+  const ball_state = is_main_ball
+    ? s.ball
+    : s.power_up_ball;
 
   const y_pos = ball_state.y;
   const x_pos = ball_state.x;
@@ -1249,6 +1303,17 @@ function new_ball_velocity(s: State, ball_type: Ball_type): Vector {
     return velocity.y_reflect();
   else return velocity;
 }
+
+
+// This is very similar to the previous function; however, this is exclusive to the pb boxball
+function get_new_power_ball_velocity(s: State): Vector {
+  return s.power_up_ball.x <= 100 || s.power_up_ball.x >= 400
+    ? s.power_up_ball.velocity.y_reflect()
+    : s.power_up_ball.y <= 100 || s.ball.y >= 400
+      ? s.power_up_ball.velocity.x_reflect()
+      : s.power_up_ball.velocity;
+}
+
 
 // The following functions are in regards to updating the view
 // Most of these functions have side effects because they update the view
