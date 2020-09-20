@@ -97,8 +97,8 @@ type State = Readonly<{
   ai_paddle: ai_state;
   ball: ball_state;
   power_up_ball: power_up_ball_state;
-  ai_score: number;
   player_score: number;
+  ai_score: number;
   meta_state: Meta_State;
 }>;
 
@@ -211,8 +211,8 @@ const initialState: State = {
   player_state: initial_player_state,
   ai_paddle: initial_ai_state,
   ball: initial_ball_State,
-  ai_score: 0,
   player_score: 0,
+  ai_score: 0,
   meta_state: initial_meta_state,
   power_up_ball: initial_pb_state,
 };
@@ -457,8 +457,8 @@ const get_paddle_range = (Paddle_owner: Player_type) => (s: State) => {
  * @param s The current game state
  */
 const prediction_deviation: (s: State) => number = (s: State) => {
-  const player_help = 0.5 * (1 / (1 + Math.exp(s.player_score - 4))) + 0.05; // as the player scores they get less help
-  const ai_help = 0.35 * (1 / (1 + Math.exp(-s.ai_score + 4))); // as the player scores they get less help
+  const player_help = 0.5 * (1 / (1 + Math.exp(s.ai_score - 4))) + 0.05; // as the player scores they get less help
+  const ai_help = 0.35 * (1 / (1 + Math.exp(-s.player_score + 4))); // as the player scores they get less help
   const variance = (player_help + ai_help) * (90 / s.meta_state.difficulty); // 1, 2 or 3
   const generated_number = randn_bm(s.meta_state.rand_seed, variance, 0);
   return generated_number;
@@ -819,8 +819,8 @@ function update_score_tick_function(s: State): State {
   if (!s.meta_state.score_has_updated && !check_collision_with_both_paddle(s) && (s.ball.x > 562 || s.ball.x < 38)) {
     return {
       ...s,
-      player_score: s.ball.x > 560 ? s.ai_score + 1 : s.ai_score,
-      ai_score: s.ball.x < 38 ? s.player_score + 1 : s.player_score,
+      player_score: s.ball.x > 560 ? s.player_score + 1 : s.player_score,
+      ai_score: s.ball.x < 38 ? s.ai_score + 1 : s.ai_score,
       meta_state: {
         ...s.meta_state,
         score_has_updated: true,
@@ -1184,7 +1184,7 @@ const get_paddle_contact_strength: (p: Player_type) => (s: State) => number = (
 
 // This function sets all rhe required completion states for the game end
 function check_end_game_tick_function(s: State): State {
-  const game_ended: boolean = s.ai_score >= 7 || s.player_score >= 7;
+  const game_ended: boolean = s.player_score >= game_constants.MAX_SCORE || s.ai_score >= game_constants.MAX_SCORE;
   return {
     ...s,
     meta_state: {
@@ -1267,19 +1267,23 @@ function check_collision_with_both_paddle(s: State): boolean {
 // the reason for this enum is similar to the previous ones, where it is for mainly readability
 const enum Ball_type {
   main_ball,
+  heuristic_ball,
   power_ball,
-  heuristic_ball
 }
+
 
 // This will take a state and a ball type and it will return a new vector based on the position of the input ball type
 // the new vector could be reflected off the wall or paddles
 function new_ball_velocity(s: State, ball_type: Ball_type): Vector {
   // The following two are not required; however, they make the code cleaner and more readable
+  const is_h_ball = ball_type === Ball_type.heuristic_ball;
   const is_main_ball = ball_type === Ball_type.main_ball;
 
-  const ball_state = is_main_ball
-    ? s.ball
-    : s.power_up_ball;
+  const ball_state = is_h_ball
+    ? s.ai_paddle.heuristic_ball
+    : is_main_ball
+      ? s.ball
+      : s.power_up_ball;
 
   const y_pos = ball_state.y;
   const x_pos = ball_state.x;
@@ -1304,13 +1308,12 @@ function new_ball_velocity(s: State, ball_type: Ball_type): Vector {
   else return velocity;
 }
 
-
 // This is very similar to the previous function; however, this is exclusive to the pb boxball
 function get_new_power_ball_velocity(s: State): Vector {
   return s.power_up_ball.x <= 100 || s.power_up_ball.x >= 400
-    ? s.power_up_ball.velocity.y_reflect()
+    ? s.power_up_ball.velocity.x_reflect()
     : s.power_up_ball.y <= 100 || s.ball.y >= 400
-      ? s.power_up_ball.velocity.x_reflect()
+      ? s.power_up_ball.velocity.y_reflect()
       : s.power_up_ball.velocity;
 }
 
@@ -1565,7 +1568,7 @@ function display_all_menus(state: State): void {
     MenuType.PauseMenu,
     state.meta_state.is_paused &&
     state.meta_state.has_started &&
-    !(state.player_score >= game_constants.MAX_SCORE || state.ai_score >= game_constants.MAX_SCORE)
+    !(state.ai_score >= game_constants.MAX_SCORE || state.player_score >= game_constants.MAX_SCORE)
   );
 
   displayMenu(
@@ -1576,7 +1579,7 @@ function display_all_menus(state: State): void {
   displayMenu(
     MenuType.EndMenu,
     state.meta_state.is_paused &&
-    (state.player_score >= game_constants.MAX_SCORE || state.ai_score >= game_constants.MAX_SCORE)
+    (state.ai_score >= game_constants.MAX_SCORE || state.player_score >= game_constants.MAX_SCORE)
   );
 }
 
@@ -1609,7 +1612,7 @@ function updateView(state: State): void {
     resetWinText();
     reset_score();
   } else if (state.meta_state.has_ended) {
-    updateWinText(state.ai_score < state.player_score);
+    updateWinText(state.player_score < state.ai_score);
   }
 }
 
