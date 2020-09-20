@@ -1,4 +1,4 @@
-import { interval, fromEvent, from } from "rxjs";
+import { interval, fromEvent } from "rxjs";
 
 import {
   map,
@@ -238,8 +238,7 @@ const enum Player_type {
 }
 
 // The following class are the event classes that will be constructed by keyboard down
-// Classes are created because they store a value and simple types wouldn't sufficed
-// TODO add more detailed explaination
+// Classes are created because we will use instanceOf to check types later in the reduce function
 class Tick {
   constructor(public readonly elapsed: number) { }
 }
@@ -251,7 +250,7 @@ class use_power_up {
   constructor(public readonly activated: boolean) { }
 }
 
-// pause did not require to be a class; however, for consistency was created as a class
+
 class pause {
   constructor() { }
 }
@@ -812,7 +811,6 @@ function move_power_ball_tick_function(s: State): State {
 }
 
 
-// TODO ADD COMMENT HERE EXPLAINING THE OVERSHOOT AND ETC...
 // score_has_updated is a variable which has also been changed, to avoid double ups in counting as sometimes if the ball is too slow or too fast, two scores are counted as the position of the ball isn't updated instantly when it goes out. This has been done because if the update has been completely instant, it looked odd. Furthermore, this check avoids other bugs as well
 // The check for collision is also made because if the ball has too high of a velocity, it might be updated beyond the boundary of the paddle. This boundary issue isn't a deal when game play as the bounce still occurs and the position of the ball hasn't been reset; however, it might double up the count
 function update_score_tick_function(s: State): State {
