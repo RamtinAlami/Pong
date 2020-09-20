@@ -97,8 +97,8 @@ type State = Readonly<{
   ai_paddle: ai_state;
   ball: ball_state;
   power_up_ball: power_up_ball_state;
-  player_score: number;
   ai_score: number;
+  player_score: number;
   meta_state: Meta_State;
 }>;
 
@@ -164,7 +164,7 @@ const initial_ai_paddle_state: Paddle_state = {
 
 const initial_player_state: player_state = {
   paddle: initial_player_paddle_state,
-  power_up_holding: power_up_type.fast_ball,
+  power_up_holding: power_up_type.none,
   activated_power_up: null,
 };
 
@@ -211,8 +211,8 @@ const initialState: State = {
   player_state: initial_player_state,
   ai_paddle: initial_ai_state,
   ball: initial_ball_State,
-  player_score: 0,
   ai_score: 0,
+  player_score: 0,
   meta_state: initial_meta_state,
   power_up_ball: initial_pb_state,
 };
@@ -457,10 +457,11 @@ const get_paddle_range = (Paddle_owner: Player_type) => (s: State) => {
  * @param s The current game state
  */
 const prediction_deviation: (s: State) => number = (s: State) => {
-  const player_help = 0.5 * (1 / (1 + Math.exp(s.ai_score - 4))) + 0.05; // as the player scores they get less help
-  const ai_help = 0.35 * (1 / (1 + Math.exp(-s.player_score + 4))); // as the player scores they get less help
-  const variance = (player_help + ai_help) * (90 / s.meta_state.difficulty); // 1, 2 or 3
+  const player_help = 0.5 * (1 / (1 + Math.exp(s.player_score - 4))) + 0.05; // as the player scores they get less help
+  const ai_help = 0.35 * (1 / (1 + Math.exp(-s.ai_score + 4))); // as the player scores they get less help
+  const variance = (player_help + ai_help) * (150 / s.meta_state.difficulty); // 1, 2 or 3
   const generated_number = randn_bm(s.meta_state.rand_seed, variance, 0);
+
   return generated_number;
 };
 
@@ -815,12 +816,11 @@ function move_power_ball_tick_function(s: State): State {
 // score_has_updated is a variable which has also been changed, to avoid double ups in counting as sometimes if the ball is too slow or too fast, two scores are counted as the position of the ball isn't updated instantly when it goes out. This has been done because if the update has been completely instant, it looked odd. Furthermore, this check avoids other bugs as well
 // The check for collision is also made because if the ball has too high of a velocity, it might be updated beyond the boundary of the paddle. This boundary issue isn't a deal when game play as the bounce still occurs and the position of the ball hasn't been reset; however, it might double up the count
 function update_score_tick_function(s: State): State {
-  console.log(s.meta_state.score_has_updated)
   if (!s.meta_state.score_has_updated && !check_collision_with_both_paddle(s) && (s.ball.x > 562 || s.ball.x < 38)) {
     return {
       ...s,
-      player_score: s.ball.x > 560 ? s.player_score + 1 : s.player_score,
-      ai_score: s.ball.x < 38 ? s.ai_score + 1 : s.ai_score,
+      ai_score: s.ball.x > 560 ? s.ai_score + 1 : s.ai_score,
+      player_score: s.ball.x < 38 ? s.player_score + 1 : s.player_score,
       meta_state: {
         ...s.meta_state,
         score_has_updated: true,
@@ -1184,7 +1184,7 @@ const get_paddle_contact_strength: (p: Player_type) => (s: State) => number = (
 
 // This function sets all rhe required completion states for the game end
 function check_end_game_tick_function(s: State): State {
-  const game_ended: boolean = s.player_score >= game_constants.MAX_SCORE || s.ai_score >= game_constants.MAX_SCORE;
+  const game_ended: boolean = s.ai_score >= game_constants.MAX_SCORE || s.player_score >= game_constants.MAX_SCORE;
   return {
     ...s,
     meta_state: {
@@ -1415,7 +1415,7 @@ const update_entity: (
 const get_side_score: (s: State) => (side: Player_type) => number = (
   s: State
 ) => (side: Player_type) => {
-  return side === Player_type.CONTROLLED_PLAYER ? s.ai_score : s.player_score;
+  return side === Player_type.CONTROLLED_PLAYER ? s.player_score : s.ai_score;
 };
 
 // We will use this function to return the prefix of the score bubble id in the html
@@ -1568,7 +1568,7 @@ function display_all_menus(state: State): void {
     MenuType.PauseMenu,
     state.meta_state.is_paused &&
     state.meta_state.has_started &&
-    !(state.ai_score >= game_constants.MAX_SCORE || state.player_score >= game_constants.MAX_SCORE)
+    !(state.player_score >= game_constants.MAX_SCORE || state.ai_score >= game_constants.MAX_SCORE)
   );
 
   displayMenu(
@@ -1579,7 +1579,7 @@ function display_all_menus(state: State): void {
   displayMenu(
     MenuType.EndMenu,
     state.meta_state.is_paused &&
-    (state.ai_score >= game_constants.MAX_SCORE || state.player_score >= game_constants.MAX_SCORE)
+    (state.player_score >= game_constants.MAX_SCORE || state.ai_score >= game_constants.MAX_SCORE)
   );
 }
 
@@ -1612,7 +1612,7 @@ function updateView(state: State): void {
     resetWinText();
     reset_score();
   } else if (state.meta_state.has_ended) {
-    updateWinText(state.player_score < state.ai_score);
+    updateWinText(state.ai_score < state.player_score);
   }
 }
 
